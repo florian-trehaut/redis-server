@@ -1,9 +1,7 @@
 // Uncomment this block to pass the first stage
-use std::{
-    io::{Read, Write},
-    net::{TcpListener, TcpStream},
-    thread,
-};
+use std::{net::TcpListener, thread};
+
+use redis_starter_rust::handle_client;
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -25,20 +23,4 @@ fn main() {
     for thread in threads {
         thread.join().expect("Can't join threads");
     }
-}
-
-fn handle_client(stream: &mut TcpStream) {
-    let mut buf = [0; 512];
-    while let Ok(n) = stream.read(&mut buf) {
-        if n == 0 {
-            break;
-        }
-        println!("Received {n} bytes with data: {:?}", &buf[..n]);
-        ping(stream);
-    }
-}
-
-const PONG: &[u8] = "+PONG\r\n".as_bytes();
-fn ping(stream: &mut TcpStream) {
-    stream.write_all(PONG).expect("Can't write PONG to stream");
 }
