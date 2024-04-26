@@ -6,7 +6,7 @@ use std::{
     thread,
 };
 
-use redis_starter_rust::{ClientHandler, RedisStore};
+use redis_starter_rust::{client_handler::ClientHandler, RedisStore};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
