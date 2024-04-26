@@ -6,7 +6,7 @@ use std::{
     thread,
 };
 
-use redis_starter_rust::{handle_client, RedisStore};
+use redis_starter_rust::{ClientHandler, RedisStore};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -21,7 +21,8 @@ fn main() {
             Ok(mut stream) => {
                 let store_clone = store.clone();
                 threads.push(thread::spawn(move || {
-                    handle_client(&mut stream, store_clone)
+                    let mut handler = ClientHandler::new(store_clone);
+                    handler.handle(&mut stream);
                 }));
             }
             Err(e) => {

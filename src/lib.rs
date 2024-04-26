@@ -30,52 +30,59 @@ impl RedisCommands {
     }
 }
 
-pub fn handle_client(stream: &mut TcpStream, store: RedisStore) {
-    let mut buf = [0; 512];
-    while let Ok(n) = stream.read(&mut buf) {
-        if n == 0 {
-            break;
-        }
-        let command = BulkString::from_bytes(&buf[..n]);
-        match RedisCommands::parse(command) {
-            RedisCommands::Ping => ping(stream),
-            RedisCommands::Echo(message) => echo(stream, &message),
-            RedisCommands::Unknown => unimplemented(stream),
-            RedisCommands::Get(key) => get(stream, key, &store),
-            RedisCommands::Set((key, value)) => set(stream, key, value, &store),
-        }
-    }
-}
-fn unimplemented(stream: &mut TcpStream) {
-    stream
-        .write_all(&Bulk::from_data("Not implemented yet").to_bytes())
-        .expect("Can't write to stream")
-}
-fn ping(stream: &mut TcpStream) {
-    stream
-        .write_all(&Bulk::from_data("PONG").to_bytes())
-        .expect("Can't write PONG to stream");
-}
-fn echo(stream: &mut TcpStream, message: &[Bulk]) {
-    let message: Vec<u8> = message.iter().flat_map(|bulk| bulk.to_bytes()).collect();
-    stream
-        .write_all(&Bulk::from_bytes(&message).to_bytes())
-        .expect("Can't write response to stream");
+pub struct ClientHandler {
+    store: RedisStore,
 }
 
-fn set(stream: &mut TcpStream, key: String, value: String, store: &RedisStore) {
-    store.lock().unwrap().insert(key, value);
-    responde(stream, "OK")
-}
-fn get(stream: &mut TcpStream, key: String, store: &RedisStore) {
-    match store.lock().unwrap().get(&key) {
-        Some(value) => responde(stream, value),
-        None => responde(stream, NULL),
+impl ClientHandler {
+    pub fn new(store: RedisStore) -> Self {
+        Self { store }
+    }
+
+    pub fn handle(&mut self, stream: &mut TcpStream) {
+        let mut buf = [0; 512];
+        while let Ok(n) = stream.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            let command = BulkString::from_bytes(&buf[..n]);
+            match RedisCommands::parse(command) {
+                RedisCommands::Ping => self.ping(stream),
+                RedisCommands::Echo(message) => self.echo(&message, stream),
+                RedisCommands::Unknown => self.unimplemented(stream),
+                RedisCommands::Get(key) => self.get(key, stream),
+                RedisCommands::Set((key, value)) => self.set(key, value, stream),
+            }
+        }
+    }
+
+    fn unimplemented(&self, stream: &mut TcpStream) {
+        self.responde("Not implemented yet", stream)
+    }
+
+    fn ping(&self, stream: &mut TcpStream) {
+        self.responde("PONG", stream);
+    }
+
+    fn echo(&self, message: &[Bulk], stream: &mut TcpStream) {
+        let message: Vec<u8> = message.iter().flat_map(|bulk| bulk.to_bytes()).collect();
+        self.responde(&Bulk::from_bytes(&message).data(), stream);
+    }
+
+    fn set(&self, key: String, value: String, stream: &mut TcpStream) {
+        self.store.lock().unwrap().insert(key, value);
+        self.responde("OK", stream)
+    }
+
+    fn get(&self, key: String, stream: &mut TcpStream) {
+        match self.store.lock().unwrap().get(&key) {
+            Some(value) => self.responde(value, stream),
+            None => self.responde("-1", stream),
+        }
+    }
+
+    fn responde(&self, data: &str, stream: &mut TcpStream) {
+        let response = Bulk::from_data(data).to_bytes();
+        stream.write_all(&response).unwrap();
     }
 }
-fn responde(stream: &mut TcpStream, data: &str) {
-    let response = Bulk::from_data(data).to_bytes();
-    stream.write_all(&response).unwrap();
-}
-
-const NULL: &str = "-1";
