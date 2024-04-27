@@ -6,8 +6,9 @@ use std::{
 };
 
 use crate::{
+    redis_commands::RedisCommands,
     resp::{Bulk, BulkString, RedisResponse, ToRedisBytes},
-    RedisCommands, RedisStore, RedisValue,
+    RedisStore, RedisValue,
 };
 
 pub struct ClientHandler {
@@ -70,11 +71,15 @@ impl ClientHandler {
         {
             Some(redis_value) => println!(
                 "Set -- Successfully updated key:{} value:{} with expiration: {:?}",
-                key, redis_value.value, redis_value.expiration
+                key,
+                redis_value.value(),
+                redis_value.expiration()
             ),
             None => println!(
                 "Set -- Successfully inserted key:{} value:{} with expiration: {:?}",
-                key, value.value, value.expiration
+                key,
+                value.value(),
+                value.expiration()
             ),
         }
         self.responde(RedisResponse::Ok, stream)
@@ -90,11 +95,11 @@ impl ClientHandler {
                 return;
             }
         };
-        let expiration = match redis_value.expiration {
+        let expiration = match redis_value.expiration() {
             Some(expiration) => expiration,
             None => {
                 println!("Get -- Key:{key} has been found and have no expiration");
-                self.responde(redis_value.value.clone(), stream);
+                self.responde(redis_value.value().clone(), stream);
                 return;
             }
         };
@@ -102,7 +107,7 @@ impl ClientHandler {
         match Instant::now().cmp(&expiration) {
             Ordering::Equal | Ordering::Less => {
                 println!("Get -- Key:{key} has been found and is not expired");
-                self.responde(redis_value.value.clone(), stream)
+                self.responde(redis_value.value().clone(), stream)
             }
             Ordering::Greater => {
                 println!("Get -- Key:{key} has been found but is expired");

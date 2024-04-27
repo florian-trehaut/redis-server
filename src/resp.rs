@@ -94,3 +94,53 @@ impl ToRedisBytes for String {
             .to_vec()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bulk_from_bytes() {
+        let buf = b"$5\r\nhello\r\n";
+        let bulk = Bulk::from_bytes(buf);
+        assert_eq!(bulk.length(), 5);
+        assert_eq!(bulk.data(), "hello");
+    }
+
+    #[test]
+    fn test_bulk_to_redis_bytes() {
+        let bulk = Bulk {
+            length: 5,
+            data: "hello".to_string(),
+        };
+        assert_eq!(bulk.to_redis_bytes(), b"$5\r\nhello\r\n");
+    }
+
+    #[test]
+    fn test_bulk_string_from_bytes() {
+        let buf = b"*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n";
+        let bulk_string = BulkString::from_bytes(buf);
+        assert_eq!(bulk_string.bulks().len(), 2);
+        assert_eq!(bulk_string.bulks()[0].data(), "foo");
+        assert_eq!(bulk_string.bulks()[1].data(), "bar");
+    }
+
+    #[test]
+    fn test_redis_response_to_redis_bytes() {
+        assert_eq!(RedisResponse::Null.to_redis_bytes(), b"$-1\r\n");
+        assert_eq!(RedisResponse::Ok.to_redis_bytes(), b"+OK\r\n");
+        assert_eq!(RedisResponse::Pong.to_redis_bytes(), b"$4\r\nPONG\r\n");
+    }
+
+    #[test]
+    #[should_panic(expected = "not implemented")]
+    fn test_redis_response_unimplemented() {
+        RedisResponse::Unimplemented.to_redis_bytes();
+    }
+
+    #[test]
+    fn test_string_to_redis_bytes() {
+        let s = "hello".to_string();
+        assert_eq!(s.to_redis_bytes(), b"$5\r\nhello\r\n");
+    }
+}
