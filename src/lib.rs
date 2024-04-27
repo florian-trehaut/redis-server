@@ -1,5 +1,6 @@
 mod client_handler;
 mod redis_commands;
+mod redis_info;
 mod resp;
 mod store;
 

@@ -8,6 +8,7 @@ pub enum RedisCommands {
     Get(String),
     Set((String, String, Option<Duration>)),
     Unknown,
+    Info(String),
 }
 impl RedisCommands {
     pub fn parse(bulkstring: BulkString) -> RedisCommands {
@@ -34,6 +35,10 @@ impl RedisCommands {
                     [_, key, value, ..] => RedisCommands::Set((key.data(), value.data(), None)),
                     _ => RedisCommands::Unknown,
                 }
+            }
+            "info" => {
+                let section = bulkstring.bulks().get(1).map(|bulk| bulk.data());
+                RedisCommands::Info(section.unwrap())
             }
             _ => RedisCommands::Unknown,
         }

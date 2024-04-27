@@ -75,6 +75,13 @@ impl Bulk {
         let data = message.next().unwrap().trim().to_string();
         Bulk { length, data }
     }
+
+    pub fn from_string(s: &str) -> Bulk {
+        Bulk {
+            length: s.len(),
+            data: s.to_string(),
+        }
+    }
 }
 
 pub trait ToRedisBytes {

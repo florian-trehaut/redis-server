@@ -7,17 +7,20 @@ use std::{
 
 use crate::{
     redis_commands::RedisCommands,
+    redis_info::RedisInfo,
     resp::{Bulk, BulkString, RedisResponse, ToRedisBytes},
     RedisStore, RedisValue,
 };
 
 pub struct ClientHandler {
     store: RedisStore,
+    server_info: RedisInfo,
 }
 
 impl ClientHandler {
     pub fn new(store: RedisStore) -> Self {
-        Self { store }
+        let server_info = RedisInfo::new();
+        Self { store, server_info }
     }
 
     pub fn handle(&mut self, stream: &mut TcpStream) {
@@ -35,6 +38,7 @@ impl ClientHandler {
                 RedisCommands::Set((key, value, expiration)) => {
                     self.set(key, value, expiration, stream)
                 }
+                RedisCommands::Info(section) => self.info(section, stream),
             }
         }
     }
@@ -117,7 +121,19 @@ impl ClientHandler {
     }
 
     fn responde(&self, response: impl ToRedisBytes, stream: &mut TcpStream) {
+        println!(
+            "Responding with: {:?}",
+            std::str::from_utf8(&response.to_redis_bytes())
+        );
         let response = response.to_redis_bytes();
         stream.write_all(&response).unwrap();
+    }
+
+    fn info(&self, section: String, stream: &mut TcpStream) {
+        let info = match section.to_lowercase().as_str() {
+            "replication" => self.server_info.to_bulk_string(),
+            _ => Bulk::from_string("Unknown section"),
+        };
+        self.responde(info, stream);
     }
 }
