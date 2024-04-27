@@ -13,8 +13,8 @@ impl ServerConfig {
         self.replica_of.as_ref()
     }
 }
-#[derive(Clone)]
 
+#[derive(Clone)]
 pub struct ReplicaOf {
     _host: Host,
     _port: Port,

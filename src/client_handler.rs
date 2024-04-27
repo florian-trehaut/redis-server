@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    fmt::Display,
     io::{Read, Write},
     net::TcpStream,
     time::{Duration, Instant},
@@ -29,8 +30,23 @@ impl ClientHandler {
             if n == 0 {
                 break;
             }
-            let command = BulkString::from_bytes(&buf[..n]);
-            match RedisCommands::parse(command) {
+            let command = match BulkString::from_bytes(&buf[..n]) {
+                Ok(command) => command,
+                Err(e) => {
+                    eprintln!("Error parsing command: {:?}", e);
+                    self.respond(RedisResponse::Null, stream);
+                    continue;
+                }
+            };
+            let redis_command = match RedisCommands::parse(command) {
+                Ok(redis_command) => redis_command,
+                Err(e) => {
+                    eprintln!("Error parsing command: {:?}", e);
+                    self.respond(e, stream);
+                    continue;
+                }
+            };
+            match redis_command {
                 RedisCommands::Ping => self.ping(stream),
                 RedisCommands::Echo(message) => self.echo(&message, stream),
                 RedisCommands::Unknown => self.unimplemented(stream),
@@ -44,11 +60,11 @@ impl ClientHandler {
     }
 
     fn unimplemented(&self, stream: &mut TcpStream) {
-        self.responde(RedisResponse::Unimplemented, stream)
+        self.respond(RedisResponse::Unimplemented, stream)
     }
 
     fn ping(&self, stream: &mut TcpStream) {
-        self.responde(RedisResponse::Pong, stream);
+        self.respond(RedisResponse::Pong, stream);
     }
 
     fn echo(&self, message: &[Bulk], stream: &mut TcpStream) {
@@ -56,7 +72,15 @@ impl ClientHandler {
             .iter()
             .flat_map(|bulk| bulk.to_redis_bytes())
             .collect();
-        self.responde(Bulk::from_bytes(&message), stream);
+        let message = match Bulk::from_bytes(&message) {
+            Ok(message) => message,
+            Err(_) => {
+                eprintln!("Error parsing echo message");
+                self.respond(RedisResponse::InvalidBulk, stream);
+                return;
+            }
+        };
+        self.respond(message, stream);
     }
 
     fn set(
@@ -67,12 +91,16 @@ impl ClientHandler {
         stream: &mut TcpStream,
     ) {
         let value = RedisValue::new(value, expiration);
-        match self
-            .store
-            .lock()
-            .unwrap()
-            .insert(key.clone(), value.clone())
-        {
+
+        let mut store = match self.store.lock() {
+            Ok(store) => store,
+            Err(e) => {
+                eprintln!("Error locking store: {}", e);
+                self.respond(ClientHandlerError::PoisonedStore, stream);
+                return;
+            }
+        };
+        match store.insert(key.clone(), value.clone()) {
             Some(redis_value) => println!(
                 "Set -- Successfully updated key:{} value:{} with expiration: {:?}",
                 key,
@@ -86,16 +114,23 @@ impl ClientHandler {
                 value.expiration()
             ),
         }
-        self.responde(RedisResponse::Ok, stream)
+        self.respond(RedisResponse::Ok, stream)
     }
 
     fn get(&self, key: String, stream: &mut TcpStream) {
-        let store = self.store.lock().unwrap();
+        let store = match self.store.lock() {
+            Ok(store) => store,
+            Err(e) => {
+                eprintln!("Error locking store: {}", e);
+                self.respond(ClientHandlerError::PoisonedStore, stream);
+                return;
+            }
+        };
         let redis_value = match store.get(&key) {
             Some(redis_value) => redis_value,
             None => {
                 println!("Get -- Key:{key} has not been found");
-                self.responde(RedisResponse::Null, stream);
+                self.respond(RedisResponse::Null, stream);
                 return;
             }
         };
@@ -103,7 +138,7 @@ impl ClientHandler {
             Some(expiration) => expiration,
             None => {
                 println!("Get -- Key:{key} has been found and have no expiration");
-                self.responde(redis_value.value().clone(), stream);
+                self.respond(redis_value.value().clone(), stream);
                 return;
             }
         };
@@ -111,22 +146,25 @@ impl ClientHandler {
         match Instant::now().cmp(&expiration) {
             Ordering::Equal | Ordering::Less => {
                 println!("Get -- Key:{key} has been found and is not expired");
-                self.responde(redis_value.value().clone(), stream)
+                self.respond(redis_value.value().clone(), stream)
             }
             Ordering::Greater => {
                 println!("Get -- Key:{key} has been found but is expired");
-                self.responde(RedisResponse::Null, stream)
+                self.respond(RedisResponse::Null, stream)
             }
         }
     }
 
-    fn responde(&self, response: impl ToRedisBytes, stream: &mut TcpStream) {
+    fn respond(&self, response: impl ToRedisBytes, stream: &mut TcpStream) {
         println!(
             "Responding with: {:?}",
             std::str::from_utf8(&response.to_redis_bytes())
         );
         let response = response.to_redis_bytes();
-        stream.write_all(&response).unwrap();
+        match stream.write_all(&response) {
+            Ok(_) => (),
+            Err(e) => eprintln!("Error writing to stream: {:?}", e),
+        }
     }
 
     fn info(&self, section: String, stream: &mut TcpStream) {
@@ -134,6 +172,24 @@ impl ClientHandler {
             "replication" => self.server_info.to_bulk_string(),
             _ => Bulk::from_string("Unknown section"),
         };
-        self.responde(info, stream);
+        self.respond(info, stream);
+    }
+}
+
+enum ClientHandlerError {
+    PoisonedStore,
+}
+impl Display for ClientHandlerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClientHandlerError::PoisonedStore => write!(f, "Poisoned store"),
+        }
+    }
+}
+impl ToRedisBytes for ClientHandlerError {
+    fn to_redis_bytes(&self) -> Vec<u8> {
+        format!("${}\r\n{}\r\n", self.to_string().len(), self)
+            .as_bytes()
+            .to_vec()
     }
 }
