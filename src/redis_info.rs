@@ -4,6 +4,8 @@ use crate::{resp::Bulk, ServerConfig};
 
 pub struct RedisInfo {
     role: Role,
+    master_replid: Id,
+    master_repl_offset: Offset,
 }
 impl RedisInfo {
     pub fn new(server_config: ServerConfig) -> Self {
@@ -11,12 +13,25 @@ impl RedisInfo {
             Some(_) => Role::Slave,
             None => Role::Master,
         };
-        Self { role }
+        Self {
+            role,
+            master_replid: Id::new(),
+            master_repl_offset: Offset::new(),
+        }
     }
     pub fn to_bulk_string(&self) -> Bulk {
-        Bulk::from_string(format!("{}", self.role).as_str())
+        Bulk::from_string(format!("{}", self).as_str())
     }
 }
+impl Display for RedisInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "role:{}\r\n", self.role)?;
+        write!(f, "master_replid:{}\r\n", self.master_replid)?;
+        write!(f, "master_repl_offset:{}\r\n", self.master_repl_offset)?;
+        Ok(())
+    }
+}
+
 enum Role {
     Master,
     Slave,
@@ -24,8 +39,38 @@ enum Role {
 impl Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Role::Master => write!(f, "role:master"),
-            Role::Slave => write!(f, "role:slave"),
+            Role::Master => write!(f, "master"),
+            Role::Slave => write!(f, "slave"),
         }
+    }
+}
+#[derive(Debug, Clone)]
+struct Id(String);
+impl Id {
+    fn new() -> Self {
+        Self("id".to_string())
+    }
+    fn get(&self) -> &str {
+        &self.0
+    }
+}
+impl Display for Id {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.get())
+    }
+}
+#[derive(Debug, Clone)]
+struct Offset(u64);
+impl Offset {
+    fn new() -> Self {
+        Self(0)
+    }
+    fn get(&self) -> u64 {
+        self.0
+    }
+}
+impl Display for Offset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.get())
     }
 }
