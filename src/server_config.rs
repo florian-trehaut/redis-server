@@ -1,31 +1,76 @@
-use std::{fmt::Display, net::Ipv4Addr, str::FromStr};
+use std::{
+    fmt::Display,
+    net::{Ipv4Addr, ToSocketAddrs},
+    str::FromStr,
+};
 
 #[derive(Clone)]
 pub struct ServerConfig {
+    port: Port,
     replica_of: Option<ReplicaOf>,
 }
 impl ServerConfig {
-    pub fn new(replica_of: Option<ReplicaOf>) -> Self {
-        Self { replica_of }
-    }
-
     pub fn replica_of(&self) -> Option<&ReplicaOf> {
         self.replica_of.as_ref()
+    }
+    pub fn port(&self) -> &Port {
+        &self.port
+    }
+    pub fn from_args(args: &[String]) -> ServerConfig {
+        let mut port = "6379"; // default port
+        let mut host_of_replica = None;
+        let mut port_of_host = None;
+
+        if let Some(port_arg_position) = args.iter().position(|arg| *arg == "--port") {
+            if args.len() > port_arg_position + 1 {
+                port = &args[port_arg_position + 1];
+            }
+        }
+
+        if let Some(replica_arg_position) = args.iter().position(|arg| *arg == "--replicaof") {
+            match (
+                args.get(replica_arg_position + 1),
+                args.get(replica_arg_position + 2),
+            ) {
+                (Some(host), Some(port)) => {
+                    host_of_replica = Some(host.parse::<Host>().unwrap());
+                    port_of_host = Some(port.parse::<Port>().unwrap());
+                }
+                _ => {
+                    eprintln!("Invalid arguments for --replicaof");
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        let port: Port = port.parse().expect("Invalid port number");
+        let replica_of = match (host_of_replica, port_of_host) {
+            (Some(host), Some(port)) => Some(ReplicaOf::new(host, port)),
+            _ => None,
+        };
+
+        ServerConfig { port, replica_of }
     }
 }
 
 #[derive(Clone)]
 pub struct ReplicaOf {
-    _host: Host,
-    _port: Port,
+    host_address: Host,
+    port: Port,
 }
 
 impl ReplicaOf {
     pub fn new(host: Host, port: Port) -> Self {
         Self {
-            _host: host,
-            _port: port,
+            host_address: host,
+            port,
         }
+    }
+    pub fn host_address(&self) -> &Host {
+        &self.host_address
+    }
+    pub fn port(&self) -> &Port {
+        &self.port
     }
 }
 #[derive(Clone, Debug)]
@@ -33,6 +78,15 @@ pub struct Host(String);
 impl Host {
     pub fn get(&self) -> &str {
         &self.0
+    }
+}
+impl ToSocketAddrs for Host {
+    type Iter = std::vec::IntoIter<std::net::SocketAddr>;
+    fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
+        match self.0.as_str() {
+            "localhost" => "127.0.0.1".to_socket_addrs(),
+            _ => self.0.as_str().to_socket_addrs(),
+        }
     }
 }
 impl FromStr for Host {

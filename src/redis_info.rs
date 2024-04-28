@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{resp::Bulk, ServerConfig};
+use crate::{resp::BulkString, ServerConfig};
 
 pub struct RedisInfo {
     role: Role,
@@ -19,8 +19,8 @@ impl RedisInfo {
             master_repl_offset: Offset::new(),
         }
     }
-    pub fn to_bulk_string(&self) -> Bulk {
-        Bulk::from_string(format!("{}", self).as_str())
+    pub fn to_bulk_string(&self) -> BulkString {
+        BulkString::from_string(format!("{}", self).as_str())
     }
 }
 impl Display for RedisInfo {

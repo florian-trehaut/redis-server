@@ -9,7 +9,7 @@ use std::{
 use crate::{
     redis_commands::RedisCommands,
     redis_info::RedisInfo,
-    resp::{Bulk, BulkString, RedisResponse, ToRedisBytes},
+    resp::{BulkString, RedisResponse, RespArray, ToRedisBytes},
     RedisStore, RedisValue, ServerConfig,
 };
 
@@ -30,7 +30,7 @@ impl ClientHandler {
             if n == 0 {
                 break;
             }
-            let command = match BulkString::from_bytes(&buf[..n]) {
+            let command = match RespArray::from_bytes(&buf[..n]) {
                 Ok(command) => command,
                 Err(e) => {
                     eprintln!("Error parsing command: {:?}", e);
@@ -49,7 +49,6 @@ impl ClientHandler {
             match redis_command {
                 RedisCommands::Ping => self.ping(stream),
                 RedisCommands::Echo(message) => self.echo(&message, stream),
-                RedisCommands::Unknown => self.unimplemented(stream),
                 RedisCommands::Get(key) => self.get(key, stream),
                 RedisCommands::Set((key, value, expiration)) => {
                     self.set(key, value, expiration, stream)
@@ -59,30 +58,19 @@ impl ClientHandler {
         }
     }
 
-    fn unimplemented(&self, stream: &mut TcpStream) {
-        self.respond(RedisResponse::Unimplemented, stream)
-    }
-
     fn ping(&self, stream: &mut TcpStream) {
         self.respond(RedisResponse::Pong, stream);
     }
 
-    fn echo(&self, message: &[Bulk], stream: &mut TcpStream) {
-        let message: Vec<u8> = message
+    fn echo(&self, message: &[BulkString], stream: &mut TcpStream) {
+        let message = message
             .iter()
-            .flat_map(|bulk| bulk.to_redis_bytes())
-            .collect();
-        let message = match Bulk::from_bytes(&message) {
-            Ok(message) => message,
-            Err(_) => {
-                eprintln!("Error parsing echo message");
-                self.respond(RedisResponse::InvalidBulk, stream);
-                return;
-            }
-        };
+            .map(|bulk| bulk.data())
+            .collect::<Vec<String>>()
+            .join("");
+        let message = BulkString::from_string(&message);
         self.respond(message, stream);
     }
-
     fn set(
         &self,
         key: String,
@@ -138,7 +126,7 @@ impl ClientHandler {
             Some(expiration) => expiration,
             None => {
                 println!("Get -- Key:{key} has been found and have no expiration");
-                self.respond(redis_value.value().clone(), stream);
+                self.respond(redis_value.value(), stream);
                 return;
             }
         };
@@ -146,7 +134,7 @@ impl ClientHandler {
         match Instant::now().cmp(&expiration) {
             Ordering::Equal | Ordering::Less => {
                 println!("Get -- Key:{key} has been found and is not expired");
-                self.respond(redis_value.value().clone(), stream)
+                self.respond(redis_value.value(), stream)
             }
             Ordering::Greater => {
                 println!("Get -- Key:{key} has been found but is expired");
@@ -170,7 +158,7 @@ impl ClientHandler {
     fn info(&self, section: String, stream: &mut TcpStream) {
         let info = match section.to_lowercase().as_str() {
             "replication" => self.server_info.to_bulk_string(),
-            _ => Bulk::from_string("Unknown section"),
+            _ => BulkString::from_string("Unknown section"),
         };
         self.respond(info, stream);
     }

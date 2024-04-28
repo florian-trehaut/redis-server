@@ -1,17 +1,16 @@
 use std::time::Duration;
 
-use crate::resp::{Bulk, BulkString, ToRedisBytes};
+use crate::resp::{BulkString, RespArray, ToRedisBytes};
 
 pub enum RedisCommands {
     Ping,
-    Echo(Vec<Bulk>),
+    Echo(Vec<BulkString>),
     Get(String),
     Set((String, String, Option<Duration>)),
-    Unknown,
     Info(String),
 }
 impl RedisCommands {
-    pub fn parse(bulkstring: BulkString) -> Result<RedisCommands, RedisCommandError> {
+    pub fn parse(bulkstring: RespArray) -> Result<RedisCommands, RedisCommandError> {
         let redis_command = match bulkstring
             .bulks()
             .first()
@@ -43,7 +42,7 @@ impl RedisCommands {
                         RedisCommands::Set((key.data(), value.data(), Some(duration)))
                     }
                     [_, key, value, ..] => RedisCommands::Set((key.data(), value.data(), None)),
-                    _ => RedisCommands::Unknown,
+                    _ => return Err(RedisCommandError::EmptySetKeyOrValue),
                 }
             }
             "info" => {
@@ -63,6 +62,7 @@ pub enum RedisCommandError {
     EmptyGetCommand,
     InvalidSetExpiration,
     EmptyInfoSection,
+    EmptySetKeyOrValue,
 }
 impl std::fmt::Display for RedisCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -72,6 +72,7 @@ impl std::fmt::Display for RedisCommandError {
             RedisCommandError::EmptyGetCommand => write!(f, "Empty get command"),
             RedisCommandError::InvalidSetExpiration => write!(f, "Invalid set expiration"),
             RedisCommandError::EmptyInfoSection => write!(f, "Empty info section"),
+            RedisCommandError::EmptySetKeyOrValue => write!(f, "Empty set key or value"),
         }
     }
 }
