@@ -8,11 +8,12 @@ pub enum RedisCommands {
     Get(String),
     Set((String, String, Option<Duration>)),
     Info(String),
+    Replconf(String, String),
 }
 impl RedisCommands {
     pub fn parse(bulkstring: RespArray) -> Result<RedisCommands, RedisCommandError> {
         let redis_command = match bulkstring
-            .bulks()
+            .bulkstrings()
             .first()
             .ok_or(RedisCommandError::EmptyCommand)?
             .data()
@@ -20,16 +21,16 @@ impl RedisCommands {
             .as_str()
         {
             "ping" => RedisCommands::Ping,
-            "echo" => RedisCommands::Echo(bulkstring.bulks()[1..].to_vec()),
+            "echo" => RedisCommands::Echo(bulkstring.bulkstrings()[1..].to_vec()),
             "get" => RedisCommands::Get(
                 bulkstring
-                    .bulks()
+                    .bulkstrings()
                     .get(1)
                     .ok_or(RedisCommandError::EmptyGetCommand)?
                     .data(),
             ),
             "set" => {
-                let bulks = bulkstring.bulks();
+                let bulks = bulkstring.bulkstrings();
                 match bulks.as_slice() {
                     [_, key, value, command, duration, ..]
                         if command.data().to_lowercase().as_str() == "px" =>
@@ -46,8 +47,18 @@ impl RedisCommands {
                 }
             }
             "info" => {
-                let section = bulkstring.bulks().get(1).map(|bulk| bulk.data());
+                let section = bulkstring.bulkstrings().get(1).map(|bulk| bulk.data());
                 RedisCommands::Info(section.ok_or(RedisCommandError::EmptyInfoSection)?)
+            }
+            "replconf" => {
+                let (command, value) = (
+                    bulkstring.bulkstrings().get(1).map(|bulk| bulk.data()),
+                    bulkstring.bulkstrings().get(2).map(|bulk| bulk.data()),
+                );
+                RedisCommands::Replconf(
+                    command.ok_or(RedisCommandError::EmptyReplConfCommand)?,
+                    value.ok_or(RedisCommandError::EmptyReplConfValue)?,
+                )
             }
             _ => return Err(RedisCommandError::InvalidCommand),
         };
@@ -63,6 +74,8 @@ pub enum RedisCommandError {
     InvalidSetExpiration,
     EmptyInfoSection,
     EmptySetKeyOrValue,
+    EmptyReplConfCommand,
+    EmptyReplConfValue,
 }
 impl std::fmt::Display for RedisCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -73,6 +86,8 @@ impl std::fmt::Display for RedisCommandError {
             RedisCommandError::InvalidSetExpiration => write!(f, "Invalid set expiration"),
             RedisCommandError::EmptyInfoSection => write!(f, "Empty info section"),
             RedisCommandError::EmptySetKeyOrValue => write!(f, "Empty set key or value"),
+            RedisCommandError::EmptyReplConfCommand => write!(f, "Empty replconf command"),
+            RedisCommandError::EmptyReplConfValue => write!(f, "Empty replconf value"),
         }
     }
 }

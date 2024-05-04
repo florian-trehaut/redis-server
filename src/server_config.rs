@@ -73,6 +73,13 @@ impl ReplicaOf {
         &self.port
     }
 }
+
+impl Display for ReplicaOf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host_address, self.port)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Host(String);
 impl Host {

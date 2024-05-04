@@ -38,6 +38,7 @@ impl ClientHandler {
                     continue;
                 }
             };
+            println!("Received RESPArray: {command}");
             let redis_command = match RedisCommands::parse(command) {
                 Ok(redis_command) => redis_command,
                 Err(e) => {
@@ -54,6 +55,7 @@ impl ClientHandler {
                     self.set(key, value, expiration, stream)
                 }
                 RedisCommands::Info(section) => self.info(section, stream),
+                RedisCommands::Replconf(command, value) => self.replconf(command, value, stream),
             }
         }
     }
@@ -143,6 +145,18 @@ impl ClientHandler {
         }
     }
 
+    fn info(&self, section: String, stream: &mut TcpStream) {
+        let info = match section.to_lowercase().as_str() {
+            "replication" => self.server_info.to_bulk_string(),
+            _ => BulkString::from_string("Unknown section"),
+        };
+        self.respond(info, stream);
+    }
+
+    fn replconf(&self, _command: String, _value: String, stream: &mut TcpStream) {
+        self.respond(RedisResponse::Ok, stream)
+    }
+
     fn respond(&self, response: impl ToRedisBytes, stream: &mut TcpStream) {
         println!(
             "Responding with: {:?}",
@@ -153,14 +167,6 @@ impl ClientHandler {
             Ok(_) => (),
             Err(e) => eprintln!("Error writing to stream: {:?}", e),
         }
-    }
-
-    fn info(&self, section: String, stream: &mut TcpStream) {
-        let info = match section.to_lowercase().as_str() {
-            "replication" => self.server_info.to_bulk_string(),
-            _ => BulkString::from_string("Unknown section"),
-        };
-        self.respond(info, stream);
     }
 }
 

@@ -2,11 +2,11 @@ use std::fmt::Display;
 
 #[derive(Clone, Debug)]
 pub struct RespArray {
-    bulks: Vec<BulkString>,
+    bulkstrings: Vec<BulkString>,
 }
 impl RespArray {
-    pub fn bulks(&self) -> &Vec<BulkString> {
-        &self.bulks
+    pub fn bulkstrings(&self) -> &Vec<BulkString> {
+        &self.bulkstrings
     }
     pub fn from_bytes(buf: &[u8]) -> Result<RespArray, RespArrayError> {
         let mut message = std::str::from_utf8(buf)?.split("\r\n");
@@ -20,14 +20,19 @@ impl RespArray {
         for _ in 0..length {
             bulks.push(BulkString::build_from_iter(&mut message)?)
         }
-        Ok(RespArray { bulks })
+        Ok(RespArray { bulkstrings: bulks })
+    }
+    pub fn from_string(s: &str) -> RespArray {
+        let bulkstrings: Vec<BulkString> =
+            s.split_whitespace().map(BulkString::from_string).collect();
+        RespArray { bulkstrings }
     }
 }
 impl Display for RespArray {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = String::new();
-        result.push_str(&format!("*{}\r\n", self.bulks.len()));
-        for bulk in &self.bulks {
+        result.push_str(&format!("*{}\r\n", self.bulkstrings.len()));
+        for bulk in &self.bulkstrings {
             result.push_str(
                 &bulk
                     .to_redis_bytes()
@@ -36,7 +41,12 @@ impl Display for RespArray {
                     .collect::<String>(),
             );
         }
-        write!(f, "{}", result)
+        write!(f, "{}\r\n", result)
+    }
+}
+impl ToRedisBytes for RespArray {
+    fn to_redis_bytes(&self) -> Vec<u8> {
+        format!("{self}").into_bytes()
     }
 }
 
@@ -89,14 +99,40 @@ pub enum RedisResponse {
     Pong,
     _InvalidBulk,
 }
+const NULL_RESPONSE: &[u8] = b"$-1\r\n";
+const OK_RESPONSE: &[u8] = b"+OK\r\n";
+const PONG_RESPONSE: &[u8] = b"+PONG\r\n";
+const INVALID_BULK_RESPONSE: &[u8] = b"$12\r\nInvalid bulk\r\n";
+
+impl RedisResponse {
+    pub fn from_bytes(buf: &[u8]) -> RedisResponse {
+        match buf {
+            NULL_RESPONSE => RedisResponse::Null,
+            OK_RESPONSE => RedisResponse::Ok,
+            PONG_RESPONSE => RedisResponse::Pong,
+            INVALID_BULK_RESPONSE => RedisResponse::_InvalidBulk,
+            _ => panic!("Invalid Redis response"),
+        }
+    }
+}
+
+impl Display for RedisResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            std::str::from_utf8(&self.to_redis_bytes()).unwrap()
+        )
+    }
+}
 
 impl ToRedisBytes for RedisResponse {
     fn to_redis_bytes(&self) -> Vec<u8> {
         match self {
-            RedisResponse::Null => "$-1\r\n".as_bytes().to_vec(),
-            RedisResponse::Ok => "+OK\r\n".as_bytes().to_vec(),
-            RedisResponse::Pong => "+PONG\r\n".as_bytes().to_vec(),
-            RedisResponse::_InvalidBulk => "$12\r\nInvalid bulk\r\n".as_bytes().to_vec(),
+            RedisResponse::Null => NULL_RESPONSE.to_vec(),
+            RedisResponse::Ok => OK_RESPONSE.to_vec(),
+            RedisResponse::Pong => PONG_RESPONSE.to_vec(),
+            RedisResponse::_InvalidBulk => INVALID_BULK_RESPONSE.to_vec(),
         }
     }
 }
@@ -128,7 +164,7 @@ impl BulkString {
             .to_string();
         Ok(BulkString { length, data })
     }
-    pub fn from_bytes(buf: &[u8]) -> Result<BulkString, BulkStringError> {
+    pub fn _from_bytes(buf: &[u8]) -> Result<BulkString, BulkStringError> {
         let mut message = std::str::from_utf8(buf)?.lines();
         let length = match message.next().ok_or(BulkStringError::MissingLength)? {
             "+PONG" => {
@@ -213,7 +249,7 @@ mod tests {
     #[test]
     fn test_bulk_from_bytes() {
         let buf = b"$5\r\nhello\r\n";
-        let bulk = BulkString::from_bytes(buf);
+        let bulk = BulkString::_from_bytes(buf);
         assert_eq!(bulk.clone().unwrap().length(), 5);
         assert_eq!(bulk.clone().unwrap().data(), "hello");
     }
@@ -231,9 +267,9 @@ mod tests {
     fn test_bulk_string_from_bytes() {
         let buf = b"*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n";
         let bulk_string = RespArray::from_bytes(buf);
-        assert_eq!(bulk_string.clone().unwrap().bulks().len(), 2);
-        assert_eq!(bulk_string.clone().unwrap().bulks()[0].data(), "foo");
-        assert_eq!(bulk_string.clone().unwrap().bulks()[1].data(), "bar");
+        assert_eq!(bulk_string.clone().unwrap().bulkstrings().len(), 2);
+        assert_eq!(bulk_string.clone().unwrap().bulkstrings()[0].data(), "foo");
+        assert_eq!(bulk_string.clone().unwrap().bulkstrings()[1].data(), "bar");
     }
 
     #[test]
