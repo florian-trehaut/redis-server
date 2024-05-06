@@ -11,53 +11,100 @@ use crate::{ClientHandler, RedisStore, ServerConfig};
 pub mod master;
 pub mod slave;
 
-pub trait CreateInstance {
-    fn new(config: ServerConfig) -> Self;
-}
-pub trait RunInstance {
-    fn run(&self) -> Result<(), Error>;
+/// Trait for creating a Redis instance.
+pub trait Create {
+    type Instance;
+    type ConfigError;
+    /// Creates a new Redis instance with the given configuration.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the instance if the creation is successful, otherwise returns a `ConfigError`.
+    ///
+    /// # Errors
+    ///
+    /// If the instance fails to be created, a `ConfigError` is returned.
+    fn new(config: ServerConfig) -> Result<Self::Instance, Self::ConfigError>;
 }
 
-pub trait ListenInstance {
-    fn listen(&self) -> Result<TcpListener, Error>;
+/// Trait for running a Redis instance.
+pub trait Run {
+    type Error;
+    /// Runs the Redis instance.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the instance runs successfully, otherwise returns an `Error`.
+    ///
+    /// # Errors
+    ///
+    /// If the instance fails to run, an `Error` is returned.
+    fn run(&self, config: ServerConfig) -> Result<(), Self::Error>;
 }
 
-pub struct RedisInstance {
-    config: ServerConfig,
+/// Trait for listening to incoming connections.
+pub trait Listen {
+    type Error;
+    /// Listens to incoming connections and returns a `TcpListener`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `TcpListener` if the listening is successful, otherwise returns an `Error`.
+    ///
+    /// # Errors
+    ///
+    /// If the listener fails to bind to the address, an `Error` is returned.
+    fn listen(&self, config: ServerConfig) -> Result<TcpListener, Self::Error>;
+}
+
+/// Represents a Redis instance.
+pub struct Redis {
     store: RedisStore,
 }
 
-impl RedisInstance {
-    fn new(config: ServerConfig) -> Self {
+impl Redis {
+    /// Creates a new Redis instance with the given configuration.
+    fn new() -> Self {
         let store: RedisStore = Arc::new(Mutex::new(HashMap::new()));
-        Self { store, config }
-    }
-
-    fn _config(&self) -> &ServerConfig {
-        &self.config
+        Self { store }
     }
 }
 
-impl ListenInstance for RedisInstance {
-    fn listen(&self) -> Result<TcpListener, Error> {
-        println!("Listening on port {}", self.config.port());
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", self.config.port()))?;
+impl Listen for Redis {
+    /// Listens to incoming connections and returns a `TcpListener`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `TcpListener` if the listening is successful, otherwise returns an `Error`.
+    type Error = Error;
+    fn listen(&self, config: ServerConfig) -> Result<TcpListener, Error> {
+        println!("Listening on port {}", config.port());
+        let listener = TcpListener::bind(format!("127.0.0.1:{}", config.port()))?;
         Ok(listener)
     }
 }
 
-impl RunInstance for RedisInstance {
-    fn run(&self) -> Result<(), Error> {
-        let listener = self.listen()?;
+impl Run for Redis {
+    /// Runs the Redis instance.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if the instance runs successfully, otherwise returns an `Error`.
+    type Error = Error;
+    fn run(&self, config: ServerConfig) -> Result<(), Error> {
+        let listener = self.listen(config.clone())?;
         let mut threads: Vec<_> = vec![];
         for stream in listener.incoming() {
             let mut stream = stream?;
             let store_clone = self.store.clone();
-            let config_clone = self.config.clone();
+            let config_clone = config.clone();
             threads.push(thread::spawn(move || {
-                let mut handler = ClientHandler::new(store_clone, config_clone);
+                let mut handler = ClientHandler::new(store_clone, &config_clone);
                 handler.handle(&mut stream);
             }));
+        }
+        for handle in threads {
+            handle.join().expect("Panic occurred in thread");
         }
         Ok(())
     }

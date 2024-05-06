@@ -7,7 +7,10 @@ mod server_config;
 mod store;
 
 pub use client_handler::ClientHandler;
-pub use instance::{master::RedisMasterInstance, slave::RedisSlaveInstance, RedisInstance};
-pub use instance::{CreateInstance, ListenInstance, RunInstance};
-pub use server_config::ServerConfig;
+pub use instance::{master::RedisMasterInstance, slave::RedisSlaveInstance, Redis};
+pub use instance::{Create, Listen, Run};
+pub use server_config::{
+    host::Host, port::Port, replica::ReplicaOf, server_config::MasterConfig,
+    server_config::ServerConfig, server_config::SlaveConfig,
+};
 pub use store::{RedisStore, RedisValue};

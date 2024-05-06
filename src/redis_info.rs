@@ -8,10 +8,10 @@ pub struct RedisInfo {
     master_repl_offset: Offset,
 }
 impl RedisInfo {
-    pub fn new(server_config: ServerConfig) -> Self {
-        let role = match ServerConfig::replica_of(&server_config) {
-            Some(_) => Role::Slave,
-            None => Role::Master,
+    pub fn new(server_config: &ServerConfig) -> Self {
+        let role = match server_config {
+            ServerConfig::Master(_) => Role::Master,
+            ServerConfig::Slave(_) => Role::Slave,
         };
         Self {
             role,
@@ -20,7 +20,7 @@ impl RedisInfo {
         }
     }
     pub fn to_bulk_string(&self) -> BulkString {
-        BulkString::from_string(format!("{}", self).as_str())
+        BulkString::from_string(format!("{self}").as_str())
     }
 }
 impl Display for RedisInfo {
@@ -39,8 +39,8 @@ enum Role {
 impl Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Role::Master => write!(f, "master"),
-            Role::Slave => write!(f, "slave"),
+            Self::Master => write!(f, "master"),
+            Self::Slave => write!(f, "slave"),
         }
     }
 }
@@ -62,10 +62,10 @@ impl Display for Id {
 #[derive(Debug, Clone)]
 struct Offset(u64);
 impl Offset {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self(0)
     }
-    fn get(&self) -> u64 {
+    const fn get(&self) -> u64 {
         self.0
     }
 }

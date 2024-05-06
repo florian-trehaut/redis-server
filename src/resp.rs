@@ -1,34 +1,34 @@
 use std::fmt::Display;
 
 #[derive(Clone, Debug)]
-pub struct RespArray {
+pub struct Array {
     bulkstrings: Vec<BulkString>,
 }
-impl RespArray {
-    pub fn bulkstrings(&self) -> &Vec<BulkString> {
+impl Array {
+    pub const fn bulkstrings(&self) -> &Vec<BulkString> {
         &self.bulkstrings
     }
-    pub fn from_bytes(buf: &[u8]) -> Result<RespArray, RespArrayError> {
+    pub fn from_bytes(buf: &[u8]) -> Result<Self, ArrayError> {
         let mut message = std::str::from_utf8(buf)?.split("\r\n");
         let length = message
             .next()
-            .ok_or(RespArrayError::MissingLength)?
+            .ok_or(ArrayError::MissingLength)?
             .replace('*', "");
         let length = length.parse::<usize>()?;
 
         let mut bulks = vec![];
         for _ in 0..length {
-            bulks.push(BulkString::build_from_iter(&mut message)?)
+            bulks.push(BulkString::build_from_iter(&mut message)?);
         }
-        Ok(RespArray { bulkstrings: bulks })
+        Ok(Self { bulkstrings: bulks })
     }
-    pub fn from_string(s: &str) -> RespArray {
+    pub fn from_string(s: &str) -> Self {
         let bulkstrings: Vec<BulkString> =
             s.split_whitespace().map(BulkString::from_string).collect();
-        RespArray { bulkstrings }
+        Self { bulkstrings }
     }
 }
-impl Display for RespArray {
+impl Display for Array {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = String::new();
         result.push_str(&format!("*{}\r\n", self.bulkstrings.len()));
@@ -41,52 +41,52 @@ impl Display for RespArray {
                     .collect::<String>(),
             );
         }
-        write!(f, "{}\r\n", result)
+        write!(f, "{result}\r\n")
     }
 }
-impl ToRedisBytes for RespArray {
+impl ToRedisBytes for Array {
     fn to_redis_bytes(&self) -> Vec<u8> {
         format!("{self}").into_bytes()
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum RespArrayError {
+pub enum ArrayError {
     Utf8Error(std::str::Utf8Error),
     ParseIntError(std::num::ParseIntError),
     MissingLength,
     MissingData,
 }
 
-impl From<std::str::Utf8Error> for RespArrayError {
+impl From<std::str::Utf8Error> for ArrayError {
     fn from(err: std::str::Utf8Error) -> Self {
         Self::Utf8Error(err)
     }
 }
 
-impl From<std::num::ParseIntError> for RespArrayError {
+impl From<std::num::ParseIntError> for ArrayError {
     fn from(err: std::num::ParseIntError) -> Self {
         Self::ParseIntError(err)
     }
 }
-impl From<BulkStringError> for RespArrayError {
+impl From<BulkStringError> for ArrayError {
     fn from(err: BulkStringError) -> Self {
         match err {
-            BulkStringError::Utf8Error(err) => RespArrayError::Utf8Error(err),
-            BulkStringError::ParseIntError(err) => RespArrayError::ParseIntError(err),
-            BulkStringError::MissingLength => RespArrayError::MissingLength,
-            BulkStringError::MissingData => RespArrayError::MissingData,
+            BulkStringError::Utf8Error(err) => Self::Utf8Error(err),
+            BulkStringError::ParseIntError(err) => Self::ParseIntError(err),
+            BulkStringError::MissingLength => Self::MissingLength,
+            BulkStringError::MissingData => Self::MissingData,
         }
     }
 }
 
-impl Display for RespArrayError {
+impl Display for ArrayError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RespArrayError::Utf8Error(err) => write!(f, "{}", err),
-            RespArrayError::ParseIntError(err) => write!(f, "{}", err),
-            RespArrayError::MissingLength => write!(f, "Missing length in RESP Array"),
-            RespArrayError::MissingData => {
+            Self::Utf8Error(err) => write!(f, "{}", err),
+            Self::ParseIntError(err) => write!(f, "{}", err),
+            Self::MissingLength => write!(f, "Missing length in RESP Array"),
+            Self::MissingData => {
                 write!(f, "Missing data in one of the bulks in RESP Array")
             }
         }
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn test_bulk_string_from_bytes() {
         let buf = b"*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n";
-        let bulk_string = RespArray::from_bytes(buf);
+        let bulk_string = Array::from_bytes(buf);
         assert_eq!(bulk_string.clone().unwrap().bulkstrings().len(), 2);
         assert_eq!(bulk_string.clone().unwrap().bulkstrings()[0].data(), "foo");
         assert_eq!(bulk_string.clone().unwrap().bulkstrings()[1].data(), "bar");
@@ -287,30 +287,24 @@ mod tests {
     #[test]
     fn test_bulk_string_from_bytes_error() {
         let buf = b"*2\r\n$3\r\nfoo\r\n";
-        let result = RespArray::from_bytes(buf);
+        let result = Array::from_bytes(buf);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            RespArrayError::ParseIntError(_)
-        ));
+        assert!(matches!(result.unwrap_err(), ArrayError::ParseIntError(_)));
     }
 
     #[test]
     fn test_bulk_string_from_bytes_utf8_error() {
         let buf = [0, 159, 146, 150]; // invalid UTF-8 sequence
-        let result = RespArray::from_bytes(&buf);
+        let result = Array::from_bytes(&buf);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), RespArrayError::Utf8Error(_)));
+        assert!(matches!(result.unwrap_err(), ArrayError::Utf8Error(_)));
     }
 
     #[test]
     fn test_bulk_string_from_bytes_parse_int_error() {
         let buf = b"*not_a_number\r\n$3\r\nfoo\r\n$3\r\nbar\r\n";
-        let result = RespArray::from_bytes(buf);
+        let result = Array::from_bytes(buf);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            RespArrayError::ParseIntError(_)
-        ));
+        assert!(matches!(result.unwrap_err(), ArrayError::ParseIntError(_)));
     }
 }

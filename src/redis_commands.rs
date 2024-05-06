@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::resp::{BulkString, RespArray, ToRedisBytes};
+use crate::resp::{Array, BulkString, ToRedisBytes};
 
 pub enum RedisCommands {
     Ping,
@@ -11,7 +11,7 @@ pub enum RedisCommands {
     Replconf(String, String),
 }
 impl RedisCommands {
-    pub fn parse(bulkstring: RespArray) -> Result<RedisCommands, RedisCommandError> {
+    pub fn parse(bulkstring: &Array) -> Result<Self, RedisCommandError> {
         let redis_command = match bulkstring
             .bulkstrings()
             .first()
@@ -20,9 +20,9 @@ impl RedisCommands {
             .to_lowercase()
             .as_str()
         {
-            "ping" => RedisCommands::Ping,
-            "echo" => RedisCommands::Echo(bulkstring.bulkstrings()[1..].to_vec()),
-            "get" => RedisCommands::Get(
+            "ping" => Self::Ping,
+            "echo" => Self::Echo(bulkstring.bulkstrings()[1..].to_vec()),
+            "get" => Self::Get(
                 bulkstring
                     .bulkstrings()
                     .get(1)
@@ -40,22 +40,22 @@ impl RedisCommands {
                             Ok(value) => Duration::from_millis(value),
                             Err(_) => return Err(RedisCommandError::InvalidSetExpiration),
                         };
-                        RedisCommands::Set((key.data(), value.data(), Some(duration)))
+                        Self::Set((key.data(), value.data(), Some(duration)))
                     }
-                    [_, key, value, ..] => RedisCommands::Set((key.data(), value.data(), None)),
+                    [_, key, value, ..] => Self::Set((key.data(), value.data(), None)),
                     _ => return Err(RedisCommandError::EmptySetKeyOrValue),
                 }
             }
             "info" => {
-                let section = bulkstring.bulkstrings().get(1).map(|bulk| bulk.data());
-                RedisCommands::Info(section.ok_or(RedisCommandError::EmptyInfoSection)?)
+                let section = bulkstring.bulkstrings().get(1).map(BulkString::data);
+                Self::Info(section.ok_or(RedisCommandError::EmptyInfoSection)?)
             }
             "replconf" => {
                 let (command, value) = (
-                    bulkstring.bulkstrings().get(1).map(|bulk| bulk.data()),
-                    bulkstring.bulkstrings().get(2).map(|bulk| bulk.data()),
+                    bulkstring.bulkstrings().get(1).map(BulkString::data),
+                    bulkstring.bulkstrings().get(2).map(BulkString::data),
                 );
-                RedisCommands::Replconf(
+                Self::Replconf(
                     command.ok_or(RedisCommandError::EmptyReplConfCommand)?,
                     value.ok_or(RedisCommandError::EmptyReplConfValue)?,
                 )
@@ -80,14 +80,14 @@ pub enum RedisCommandError {
 impl std::fmt::Display for RedisCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RedisCommandError::InvalidCommand => write!(f, "Invalid command"),
-            RedisCommandError::EmptyCommand => write!(f, "Empty command"),
-            RedisCommandError::EmptyGetCommand => write!(f, "Empty get command"),
-            RedisCommandError::InvalidSetExpiration => write!(f, "Invalid set expiration"),
-            RedisCommandError::EmptyInfoSection => write!(f, "Empty info section"),
-            RedisCommandError::EmptySetKeyOrValue => write!(f, "Empty set key or value"),
-            RedisCommandError::EmptyReplConfCommand => write!(f, "Empty replconf command"),
-            RedisCommandError::EmptyReplConfValue => write!(f, "Empty replconf value"),
+            Self::InvalidCommand => write!(f, "Invalid command"),
+            Self::EmptyCommand => write!(f, "Empty command"),
+            Self::EmptyGetCommand => write!(f, "Empty get command"),
+            Self::InvalidSetExpiration => write!(f, "Invalid set expiration"),
+            Self::EmptyInfoSection => write!(f, "Empty info section"),
+            Self::EmptySetKeyOrValue => write!(f, "Empty set key or value"),
+            Self::EmptyReplConfCommand => write!(f, "Empty replconf command"),
+            Self::EmptyReplConfValue => write!(f, "Empty replconf value"),
         }
     }
 }
