@@ -10,20 +10,24 @@ pub struct RedisValue {
     expiration: Option<Instant>,
 }
 impl RedisValue {
-    pub fn new(value: String, expiration: Option<Duration>) -> RedisValue {
+    #[must_use]
+    pub fn new(value: String, expiration: Option<Duration>) -> Self {
         let expiration = expiration.map(|expiration| Instant::now() + expiration);
-        RedisValue { value, expiration }
+        Self { value, expiration }
     }
+    #[must_use]
     pub fn value(&self) -> String {
         self.value.to_string()
     }
-    pub fn expiration(&self) -> Option<Instant> {
+    #[must_use]
+    pub const fn expiration(&self) -> Option<Instant> {
         self.expiration
     }
 }
 pub type RedisStore = Arc<Mutex<HashMap<String, RedisValue>>>;
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::thread::sleep;
@@ -49,7 +53,7 @@ mod tests {
     fn test_redis_value_expiration() {
         let value = "test".to_string();
         let expiration = Some(Duration::from_secs(1));
-        let redis_value = RedisValue::new(value.clone(), expiration);
+        let redis_value = RedisValue::new(value, expiration);
         sleep(Duration::from_secs(2));
         assert!(Instant::now() >= redis_value.expiration().unwrap());
     }

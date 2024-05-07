@@ -1,0 +1,892 @@
+diff --git a/src/client_handler.rs b/src/client_handler.rs
+index 38cf15d..1638fe4 100644
+--- a/src/client_handler.rs
++++ b/src/client_handler.rs
+@@ -10,7 +10,7 @@ use crate::{
+     redis_commands::RedisCommands,
+     redis_info::RedisInfo,
+     resp::{Array, BulkString, RedisResponse, ToRedisBytes},
+-    RedisStore, RedisValue, ServerConfig,
++    Config, RedisStore, RedisValue,
+ };
+ 
+ pub struct ClientHandler {
+@@ -19,7 +19,7 @@ pub struct ClientHandler {
+ }
+ 
+ impl ClientHandler {
+-    pub fn new(store: RedisStore, server_config: &ServerConfig) -> Self {
++    pub fn new(store: RedisStore, server_config: &Config) -> Self {
+         let server_info = RedisInfo::new(server_config);
+         Self { store, server_info }
+     }
+diff --git a/src/instance/master.rs b/src/instance/master.rs
+index 736faef..084b6d8 100644
+--- a/src/instance/master.rs
++++ b/src/instance/master.rs
+@@ -1,4 +1,4 @@
+-use crate::{server_config::server_config::MasterConfigError, MasterConfig, ServerConfig};
++use crate::{server_config::server::MasterConfigError, Config, MasterConfig};
+ 
+ use super::{Create, Redis, Run};
+ use std::io::Error;
+@@ -11,7 +11,7 @@ pub struct RedisMasterInstance {
+ impl Create for RedisMasterInstance {
+     type Instance = Self;
+     type ConfigError = MasterConfigError;
+-    fn new(args: ServerConfig) -> Result<Self, MasterConfigError> {
++    fn new(args: Config) -> Result<Self, MasterConfigError> {
+         let instance = Redis::new();
+         let config = MasterConfig::from_server_config(args)?;
+         Ok(Self { instance, config })
+@@ -20,7 +20,7 @@ impl Create for RedisMasterInstance {
+ 
+ impl Run for RedisMasterInstance {
+     type Error = Error;
+-    fn run(&self, config: ServerConfig) -> Result<(), Error> {
+-        self.instance.run(config)
++    fn run(&self, _config: Config) -> Result<(), Error> {
++        self.instance.run(Config::Master(self.config.clone()))
+     }
+ }
+diff --git a/src/instance/mod.rs b/src/instance/mod.rs
+index 9a16c8a..af1b86a 100644
+--- a/src/instance/mod.rs
++++ b/src/instance/mod.rs
+@@ -6,7 +6,7 @@ use std::{
+     thread,
+ };
+ 
+-use crate::{ClientHandler, RedisStore, ServerConfig};
++use crate::{ClientHandler, Config, RedisStore};
+ 
+ pub mod master;
+ pub mod slave;
+@@ -24,7 +24,7 @@ pub trait Create {
+     /// # Errors
+     ///
+     /// If the instance fails to be created, a `ConfigError` is returned.
+-    fn new(config: ServerConfig) -> Result<Self::Instance, Self::ConfigError>;
++    fn new(config: Config) -> Result<Self::Instance, Self::ConfigError>;
+ }
+ 
+ /// Trait for running a Redis instance.
+@@ -39,7 +39,7 @@ pub trait Run {
+     /// # Errors
+     ///
+     /// If the instance fails to run, an `Error` is returned.
+-    fn run(&self, config: ServerConfig) -> Result<(), Self::Error>;
++    fn run(&self, config: Config) -> Result<(), Self::Error>;
+ }
+ 
+ /// Trait for listening to incoming connections.
+@@ -54,7 +54,7 @@ pub trait Listen {
+     /// # Errors
+     ///
+     /// If the listener fails to bind to the address, an `Error` is returned.
+-    fn listen(&self, config: ServerConfig) -> Result<TcpListener, Self::Error>;
++    fn listen(&self, config: Config) -> Result<TcpListener, Self::Error>;
+ }
+ 
+ /// Represents a Redis instance.
+@@ -77,7 +77,7 @@ impl Listen for Redis {
+     ///
+     /// Returns a `TcpListener` if the listening is successful, otherwise returns an `Error`.
+     type Error = Error;
+-    fn listen(&self, config: ServerConfig) -> Result<TcpListener, Error> {
++    fn listen(&self, config: Config) -> Result<TcpListener, Error> {
+         println!("Listening on port {}", config.port());
+         let listener = TcpListener::bind(format!("127.0.0.1:{}", config.port()))?;
+         Ok(listener)
+@@ -91,7 +91,7 @@ impl Run for Redis {
+     ///
+     /// Returns `Ok(())` if the instance runs successfully, otherwise returns an `Error`.
+     type Error = Error;
+-    fn run(&self, config: ServerConfig) -> Result<(), Error> {
++    fn run(&self, config: Config) -> Result<(), Error> {
+         let listener = self.listen(config.clone())?;
+         let mut threads: Vec<_> = vec![];
+         for stream in listener.incoming() {
+diff --git a/src/instance/slave.rs b/src/instance/slave.rs
+index 9fb2a69..f639e5e 100644
+--- a/src/instance/slave.rs
++++ b/src/instance/slave.rs
+@@ -1,7 +1,7 @@
+ use crate::{
+     resp::{Array, RedisResponse, ToRedisBytes},
+-    server_config::server_config::SlaveConfigError,
+-    ServerConfig, SlaveConfig,
++    server_config::server::SlaveConfigError,
++    Config, SlaveConfig,
+ };
+ 
+ use super::{Create, Redis, Run};
+@@ -18,7 +18,7 @@ pub struct RedisSlaveInstance {
+ impl Create for RedisSlaveInstance {
+     type Instance = Self;
+     type ConfigError = SlaveConfigError;
+-    fn new(config: ServerConfig) -> Result<Self, Self::ConfigError> {
++    fn new(config: Config) -> Result<Self, Self::ConfigError> {
+         let instance = Redis::new();
+         let config = SlaveConfig::from_server_config(config)?;
+         Ok(Self { instance, config })
+@@ -27,7 +27,7 @@ impl Create for RedisSlaveInstance {
+ 
+ impl Run for RedisSlaveInstance {
+     type Error = Error;
+-    fn run(&self, config: ServerConfig) -> Result<(), Error> {
++    fn run(&self, config: Config) -> Result<(), Error> {
+         match self.handshake() {
+             Ok(()) => println!(
+                 "Successful handshake with master {}",
+diff --git a/src/lib.rs b/src/lib.rs
+index 33bac14..5491aa6 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -10,7 +10,7 @@ pub use client_handler::ClientHandler;
+ pub use instance::{master::RedisMasterInstance, slave::RedisSlaveInstance, Redis};
+ pub use instance::{Create, Listen, Run};
+ pub use server_config::{
+-    host::Host, port::Port, replica::ReplicaOf, server_config::MasterConfig,
+-    server_config::ServerConfig, server_config::SlaveConfig,
++    host::Host, port::Port, replica::ReplicaOf, server::Config, server::MasterConfig,
++    server::SlaveConfig,
+ };
+ pub use store::{RedisStore, RedisValue};
+diff --git a/src/main.rs b/src/main.rs
+index b9ee709..4d4683a 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,9 +1,9 @@
+-use redis_starter_rust::{Create, RedisMasterInstance, RedisSlaveInstance, Run, ServerConfig};
++use redis_starter_rust::{Config, Create, RedisMasterInstance, RedisSlaveInstance, Run};
+ 
+ fn main() {
+     let args: Vec<String> = std::env::args().collect();
+     let server_config =
+-        match ServerConfig::from_args(&args.iter().map(String::as_str).collect::<Vec<&str>>()) {
++        match Config::from_args(&args.iter().map(String::as_str).collect::<Vec<&str>>()) {
+             Ok(config) => config,
+             Err(e) => {
+                 eprintln!("Error parsing server configuration: {e}");
+@@ -11,16 +11,16 @@ fn main() {
+             }
+         };
+     match server_config {
+-        ServerConfig::Slave(config) => {
+-            let config = ServerConfig::Slave(config);
++        Config::Slave(config) => {
++            let config = Config::Slave(config);
+             let redis_server =
+                 RedisSlaveInstance::new(config.clone()).expect("Can't build slave instance");
+             if let Err(e) = redis_server.run(config) {
+                 eprintln!("Error running server: {e}");
+             }
+         }
+-        ServerConfig::Master(config) => {
+-            let config = ServerConfig::Master(config);
++        Config::Master(config) => {
++            let config = Config::Master(config);
+             let redis_server =
+                 RedisMasterInstance::new(config.clone()).expect("Can't build master instance");
+             if let Err(e) = redis_server.run(config) {
+diff --git a/src/redis_info.rs b/src/redis_info.rs
+index cb4b9fb..e53188c 100644
+--- a/src/redis_info.rs
++++ b/src/redis_info.rs
+@@ -1,6 +1,6 @@
+ use std::fmt::Display;
+ 
+-use crate::{resp::BulkString, ServerConfig};
++use crate::{resp::BulkString, Config};
+ 
+ pub struct RedisInfo {
+     role: Role,
+@@ -8,10 +8,10 @@ pub struct RedisInfo {
+     master_repl_offset: Offset,
+ }
+ impl RedisInfo {
+-    pub fn new(server_config: &ServerConfig) -> Self {
++    pub fn new(server_config: &Config) -> Self {
+         let role = match server_config {
+-            ServerConfig::Master(_) => Role::Master,
+-            ServerConfig::Slave(_) => Role::Slave,
++            Config::Master(_) => Role::Master,
++            Config::Slave(_) => Role::Slave,
+         };
+         Self {
+             role,
+diff --git a/src/resp.rs b/src/resp.rs
+index ca7a9e1..f8dcca9 100644
+--- a/src/resp.rs
++++ b/src/resp.rs
+@@ -83,8 +83,8 @@ impl From<BulkStringError> for ArrayError {
+ impl Display for ArrayError {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         match self {
+-            Self::Utf8Error(err) => write!(f, "{}", err),
+-            Self::ParseIntError(err) => write!(f, "{}", err),
++            Self::Utf8Error(err) => write!(f, "{err}"),
++            Self::ParseIntError(err) => write!(f, "{err}"),
+             Self::MissingLength => write!(f, "Missing length in RESP Array"),
+             Self::MissingData => {
+                 write!(f, "Missing data in one of the bulks in RESP Array")
+@@ -105,12 +105,12 @@ const PONG_RESPONSE: &[u8] = b"+PONG\r\n";
+ const INVALID_BULK_RESPONSE: &[u8] = b"$12\r\nInvalid bulk\r\n";
+ 
+ impl RedisResponse {
+-    pub fn from_bytes(buf: &[u8]) -> RedisResponse {
++    pub fn from_bytes(buf: &[u8]) -> Self {
+         match buf {
+-            NULL_RESPONSE => RedisResponse::Null,
+-            OK_RESPONSE => RedisResponse::Ok,
+-            PONG_RESPONSE => RedisResponse::Pong,
+-            INVALID_BULK_RESPONSE => RedisResponse::_InvalidBulk,
++            NULL_RESPONSE => Self::Null,
++            OK_RESPONSE => Self::Ok,
++            PONG_RESPONSE => Self::Pong,
++            INVALID_BULK_RESPONSE => Self::_InvalidBulk,
+             _ => panic!("Invalid Redis response"),
+         }
+     }
+@@ -121,7 +121,7 @@ impl Display for RedisResponse {
+         write!(
+             f,
+             "{}",
+-            std::str::from_utf8(&self.to_redis_bytes()).unwrap()
++            std::str::from_utf8(&self.to_redis_bytes()).expect("Redis response is not valid UTF-8")
+         )
+     }
+ }
+@@ -129,10 +129,10 @@ impl Display for RedisResponse {
+ impl ToRedisBytes for RedisResponse {
+     fn to_redis_bytes(&self) -> Vec<u8> {
+         match self {
+-            RedisResponse::Null => NULL_RESPONSE.to_vec(),
+-            RedisResponse::Ok => OK_RESPONSE.to_vec(),
+-            RedisResponse::Pong => PONG_RESPONSE.to_vec(),
+-            RedisResponse::_InvalidBulk => INVALID_BULK_RESPONSE.to_vec(),
++            Self::Null => NULL_RESPONSE.to_vec(),
++            Self::Ok => OK_RESPONSE.to_vec(),
++            Self::Pong => PONG_RESPONSE.to_vec(),
++            Self::_InvalidBulk => INVALID_BULK_RESPONSE.to_vec(),
+         }
+     }
+ }
+@@ -143,15 +143,13 @@ pub struct BulkString {
+     data: String,
+ }
+ impl BulkString {
+-    pub fn length(&self) -> usize {
++    pub const fn length(&self) -> usize {
+         self.length
+     }
+     pub fn data(&self) -> String {
+         self.data.to_string()
+     }
+-    fn build_from_iter(
+-        message: &mut std::str::Split<'_, &str>,
+-    ) -> Result<BulkString, BulkStringError> {
++    fn build_from_iter(message: &mut std::str::Split<'_, &str>) -> Result<Self, BulkStringError> {
+         let length = message
+             .next()
+             .ok_or(BulkStringError::MissingLength)?
+@@ -162,13 +160,13 @@ impl BulkString {
+             .ok_or(BulkStringError::MissingData)?
+             .trim()
+             .to_string();
+-        Ok(BulkString { length, data })
++        Ok(Self { length, data })
+     }
+-    pub fn _from_bytes(buf: &[u8]) -> Result<BulkString, BulkStringError> {
++    pub fn _from_bytes(buf: &[u8]) -> Result<Self, BulkStringError> {
+         let mut message = std::str::from_utf8(buf)?.lines();
+         let length = match message.next().ok_or(BulkStringError::MissingLength)? {
+             "+PONG" => {
+-                return Ok(BulkString {
++                return Ok(Self {
+                     length: 4,
+                     data: "PONG".to_string(),
+                 })
+@@ -180,11 +178,11 @@ impl BulkString {
+             .ok_or(BulkStringError::MissingData)?
+             .trim()
+             .to_string();
+-        Ok(BulkString { length, data })
++        Ok(Self { length, data })
+     }
+ 
+-    pub fn from_string(s: &str) -> BulkString {
+-        BulkString {
++    pub fn from_string(s: &str) -> Self {
++        Self {
+             length: s.len(),
+             data: s.to_string(),
+         }
+@@ -216,10 +214,10 @@ impl From<std::num::ParseIntError> for BulkStringError {
+ impl Display for BulkStringError {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         match self {
+-            BulkStringError::Utf8Error(err) => write!(f, "{}", err),
+-            BulkStringError::ParseIntError(err) => write!(f, "{}", err),
+-            BulkStringError::MissingLength => write!(f, "Missing length in bulk string"),
+-            BulkStringError::MissingData => write!(f, "Missing data in bulk string"),
++            Self::Utf8Error(err) => write!(f, "{err}"),
++            Self::ParseIntError(err) => write!(f, "{err}"),
++            Self::MissingLength => write!(f, "Missing length in bulk string"),
++            Self::MissingData => write!(f, "Missing data in bulk string"),
+         }
+     }
+ }
+@@ -243,6 +241,7 @@ impl ToRedisBytes for String {
+ }
+ 
+ #[cfg(test)]
++#[allow(clippy::unwrap_used)]
+ mod tests {
+     use super::*;
+ 
+@@ -251,7 +250,7 @@ mod tests {
+         let buf = b"$5\r\nhello\r\n";
+         let bulk = BulkString::_from_bytes(buf);
+         assert_eq!(bulk.clone().unwrap().length(), 5);
+-        assert_eq!(bulk.clone().unwrap().data(), "hello");
++        assert_eq!(bulk.unwrap().data(), "hello");
+     }
+ 
+     #[test]
+@@ -269,7 +268,7 @@ mod tests {
+         let bulk_string = Array::from_bytes(buf);
+         assert_eq!(bulk_string.clone().unwrap().bulkstrings().len(), 2);
+         assert_eq!(bulk_string.clone().unwrap().bulkstrings()[0].data(), "foo");
+-        assert_eq!(bulk_string.clone().unwrap().bulkstrings()[1].data(), "bar");
++        assert_eq!(bulk_string.unwrap().bulkstrings()[1].data(), "bar");
+     }
+ 
+     #[test]
+diff --git a/src/server_config/host.rs b/src/server_config/host.rs
+index 8335b2f..509fa08 100644
+--- a/src/server_config/host.rs
++++ b/src/server_config/host.rs
+@@ -3,20 +3,21 @@ use std::{fmt::Display, net::IpAddr, str::FromStr};
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub struct Host(IpAddr);
+ impl Host {
+-    pub fn get(&self) -> &IpAddr {
++    #[must_use]
++    pub const fn get(&self) -> &IpAddr {
+         &self.0
+     }
+ }
+ impl FromStr for Host {
+-    type Err = HostAddrError;
++    type Err = AddrError;
+     fn from_str(s: &str) -> Result<Self, Self::Err> {
+         if s == "localhost" {
+-            return Ok(Host(IpAddr::from([127, 0, 0, 1])));
+-        }
+-        match s.parse::<IpAddr>() {
+-            Ok(ip) => Ok(Host(ip)),
+-            Err(_) => Err(HostAddrError::InvalidHost(s.to_string())),
++            return Ok(Self(IpAddr::from([127, 0, 0, 1])));
+         }
++        s.parse::<IpAddr>().map_or_else(
++            |_| Err(AddrError::InvalidHost(s.to_string())),
++            |ip| Ok(Self(ip)),
++        )
+     }
+ }
+ impl Display for Host {
+@@ -26,18 +27,19 @@ impl Display for Host {
+ }
+ 
+ #[derive(Debug)]
+-pub enum HostAddrError {
++pub enum AddrError {
+     InvalidHost(String),
+ }
+-impl Display for HostAddrError {
++impl Display for AddrError {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         match self {
+-            HostAddrError::InvalidHost(e) => write!(f, "{e} is not a valid host address"),
++            Self::InvalidHost(e) => write!(f, "{e} is not a valid host address"),
+         }
+     }
+ }
+ 
+ #[cfg(test)]
++#[allow(clippy::unwrap_used)]
+ mod tests {
+     use super::*;
+ 
+@@ -69,13 +71,13 @@ mod tests {
+     #[test]
+     fn test_host_display() {
+         let host = "192.168.0.1".parse::<Host>().unwrap();
+-        assert_eq!(format!("{}", host), "192.168.0.1");
++        assert_eq!(format!("{host}"), "192.168.0.1");
+ 
+         let host = "localhost".parse::<Host>().unwrap();
+-        assert_eq!(format!("{}", host), "127.0.0.1");
++        assert_eq!(format!("{host}"), "127.0.0.1");
+ 
+         let host = "::1".parse::<Host>().unwrap();
+-        assert_eq!(format!("{}", host), "::1");
++        assert_eq!(format!("{host}"), "::1");
+     }
+ 
+     #[test]
+@@ -92,10 +94,7 @@ mod tests {
+ 
+     #[test]
+     fn test_host_addr_error_display() {
+-        let error = HostAddrError::InvalidHost("invalid_ip".to_string());
+-        assert_eq!(
+-            format!("{}", error),
+-            "invalid_ip is not a valid host address"
+-        );
++        let error = AddrError::InvalidHost("invalid_ip".to_string());
++        assert_eq!(format!("{error}"), "invalid_ip is not a valid host address");
+     }
+ }
+diff --git a/src/server_config/mod.rs b/src/server_config/mod.rs
+index aad0535..f824909 100644
+--- a/src/server_config/mod.rs
++++ b/src/server_config/mod.rs
+@@ -1,4 +1,4 @@
+ pub mod host;
+ pub mod port;
+ pub mod replica;
+-pub mod server_config;
++pub mod server;
+diff --git a/src/server_config/port.rs b/src/server_config/port.rs
+index 9c1ee8e..ebe7379 100644
+--- a/src/server_config/port.rs
++++ b/src/server_config/port.rs
+@@ -1,51 +1,102 @@
+ use std::{fmt::Display, str::FromStr};
+ 
++/// Represents a port number.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct Port(u16);
+ 
+ impl Port {
+-    pub fn new(port: u16) -> Result<Self, PortError> {
++    /// Creates a new `Port` instance.
++    ///
++    /// # Arguments
++    ///
++    /// * `port` - The port number.
++    ///
++    /// # Returns
++    ///
++    /// Returns a `Result` containing the `Port` instance if the port number is valid, or a `PortError` if the port number is reserved.
++    ///
++    /// # Errors
++    ///
++    /// Returns a `PortError::Reserved` if the port number is reserved.
++    pub const fn new(port: u16) -> Result<Self, Error> {
+         match port {
+-            0..=1023 => Err(PortError::Reserved),
++            0..=1023 => Err(Error::Reserved),
+             1024..=65535 => Ok(Self(port)),
+         }
+     }
+ 
+-    pub fn get(&self) -> u16 {
++    /// Returns the port number.
++    ///
++    /// # Returns
++    ///
++    /// Returns the port number as a `u16`.
++    #[must_use]
++    pub const fn get(&self) -> u16 {
+         self.0
+     }
+ }
+ 
+ impl FromStr for Port {
+-    type Err = PortError;
+-
++    type Err = Error;
++
++    /// Parses a string into a `Port` instance.
++    ///
++    /// # Arguments
++    ///
++    /// * `s` - The string to parse.
++    ///
++    /// # Returns
++    ///
++    /// Returns a `Result` containing the `Port` instance if the string can be parsed into a valid port number, or a `PortError` if the string is not a valid number or the port number is reserved.
+     fn from_str(s: &str) -> Result<Self, Self::Err> {
+-        match s.parse::<u16>() {
+-            Ok(port) => Self::new(port),
+-            Err(_) => Err(PortError::NotANumber),
+-        }
++        s.parse::<u16>().map_or(Err(Error::NotANumber), Self::new)
+     }
+ }
++
+ impl Display for Port {
++    /// Formats the `Port` instance as a string.
++    ///
++    /// # Arguments
++    ///
++    /// * `f` - The formatter.
++    ///
++    /// # Returns
++    ///
++    /// Returns a `std::fmt::Result` indicating whether the formatting was successful.
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         write!(f, "{}", self.0)
+     }
+ }
++
++/// Represents an error that can occur when working with a `Port`.
+ #[derive(Debug)]
+-pub enum PortError {
++pub enum Error {
++    /// The port number is reserved.
+     Reserved,
++    /// The input is not a number.
+     NotANumber,
+ }
+-impl Display for PortError {
++
++impl Display for Error {
++    /// Formats the `PortError` instance as a string.
++    ///
++    /// # Arguments
++    ///
++    /// * `f` - The formatter.
++    ///
++    /// # Returns
++    ///
++    /// Returns a `std::fmt::Result` indicating whether the formatting was successful.
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         match self {
+-            PortError::Reserved => write!(f, "Port number is reserved"),
+-            PortError::NotANumber => write!(f, "Input is not a number"),
++            Self::Reserved => write!(f, "Port number is reserved"),
++            Self::NotANumber => write!(f, "Input is not a number"),
+         }
+     }
+ }
+ 
+ #[cfg(test)]
++#[allow(clippy::unwrap_used)]
+ mod tests {
+     use super::*;
+ 
+@@ -94,18 +145,18 @@ mod tests {
+     #[test]
+     fn test_port_display() {
+         let port = Port::new(1024).unwrap();
+-        assert_eq!(format!("{}", port), "1024");
++        assert_eq!(format!("{port}"), "1024");
+ 
+         let port = Port::new(65535).unwrap();
+-        assert_eq!(format!("{}", port), "65535");
++        assert_eq!(format!("{port}"), "65535");
+     }
+ 
+     #[test]
+     fn test_port_error_display() {
+-        let error = PortError::Reserved;
+-        assert_eq!(format!("{}", error), "Port number is reserved");
++        let error = Error::Reserved;
++        assert_eq!(format!("{error}"), "Port number is reserved");
+ 
+-        let error = PortError::NotANumber;
+-        assert_eq!(format!("{}", error), "Input is not a number");
++        let error = Error::NotANumber;
++        assert_eq!(format!("{error}"), "Input is not a number");
+     }
+ }
+diff --git a/src/server_config/replica.rs b/src/server_config/replica.rs
+index ce5d304..b5086c8 100644
+--- a/src/server_config/replica.rs
++++ b/src/server_config/replica.rs
+@@ -5,22 +5,26 @@ use crate::Port;
+ use super::host::Host;
+ 
+ #[derive(Clone, Debug)]
++#[allow(clippy::module_name_repetitions)]
+ pub struct ReplicaOf {
+     host_address: Host,
+     port: Port,
+ }
+ 
+ impl ReplicaOf {
+-    pub fn new(host: Host, port: Port) -> Self {
++    #[must_use]
++    pub const fn new(host: Host, port: Port) -> Self {
+         Self {
+             host_address: host,
+             port,
+         }
+     }
+-    pub fn host_address(&self) -> &Host {
++    #[must_use]
++    pub const fn host_address(&self) -> &Host {
+         &self.host_address
+     }
+-    pub fn port(&self) -> &Port {
++    #[must_use]
++    pub const fn port(&self) -> &Port {
+         &self.port
+     }
+ }
+@@ -32,6 +36,7 @@ impl Display for ReplicaOf {
+ }
+ 
+ #[cfg(test)]
++#[allow(clippy::unwrap_used)]
+ mod tests {
+     use super::*;
+ 
+@@ -51,6 +56,6 @@ mod tests {
+         let port = Port::new(8080).unwrap();
+         let replica_of = ReplicaOf::new(host, port);
+ 
+-        assert_eq!(format!("{}", replica_of), "192.168.0.1:8080");
++        assert_eq!(format!("{replica_of}"), "192.168.0.1:8080");
+     }
+ }
+diff --git a/src/server_config/server_config.rs b/src/server_config/server_config.rs
+deleted file mode 100644
+index cc0be5f..0000000
+--- a/src/server_config/server_config.rs
++++ /dev/null
+@@ -1,188 +0,0 @@
+-use std::fmt::Display;
+-
+-use crate::{Port, ReplicaOf};
+-
+-use super::{host::Host, port::PortError};
+-
+-#[derive(Clone, Debug)]
+-pub enum ServerConfig {
+-    Master(MasterConfig),
+-    Slave(SlaveConfig),
+-}
+-impl ServerConfig {
+-    pub fn from_args(args: &[&str]) -> Result<ServerConfig, ServerConfigError> {
+-        if args.iter().any(|arg| *arg == "--replicaof") {
+-            SlaveConfig::from_args(args)
+-                .map(ServerConfig::Slave)
+-                .map_err(ServerConfigError::from)
+-        } else {
+-            MasterConfig::from_args(args)
+-                .map(ServerConfig::Master)
+-                .map_err(ServerConfigError::from)
+-        }
+-    }
+-    pub fn port(&self) -> &Port {
+-        match self {
+-            ServerConfig::Master(config) => config.port(),
+-            ServerConfig::Slave(config) => config.port(),
+-        }
+-    }
+-}
+-
+-#[derive(Debug)]
+-pub enum ServerConfigError {
+-    Master(MasterConfigError),
+-    Slave(SlaveConfigError),
+-}
+-impl From<MasterConfigError> for ServerConfigError {
+-    fn from(err: MasterConfigError) -> Self {
+-        ServerConfigError::Master(err)
+-    }
+-}
+-impl From<SlaveConfigError> for ServerConfigError {
+-    fn from(err: SlaveConfigError) -> Self {
+-        ServerConfigError::Slave(err)
+-    }
+-}
+-impl Display for ServerConfigError {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        match self {
+-            ServerConfigError::Master(err) => write!(f, "{}", err),
+-            ServerConfigError::Slave(err) => write!(f, "{}", err),
+-        }
+-    }
+-}
+-
+-#[derive(Clone, Debug)]
+-pub struct SlaveConfig {
+-    port: Port,
+-    replica_of: ReplicaOf,
+-}
+-impl SlaveConfig {
+-    pub fn replica_of(&self) -> &ReplicaOf {
+-        &self.replica_of
+-    }
+-    pub fn port(&self) -> &Port {
+-        &self.port
+-    }
+-    pub fn from_args(args: &[&str]) -> Result<SlaveConfig, SlaveConfigError> {
+-        let replica_arg_position = match args.iter().position(|arg| *arg == "--replicaof") {
+-            Some(position) => position,
+-            None => {
+-                return Err(SlaveConfigError::MissingReplicaOf);
+-            }
+-        };
+-
+-        let host_of_replica = match args.get(replica_arg_position + 1) {
+-            Some(host) => host,
+-            None => {
+-                return Err(SlaveConfigError::MissingReplicaOfHost);
+-            }
+-        };
+-        let host_of_replica = host_of_replica
+-            .parse::<Host>()
+-            .map_err(|_| SlaveConfigError::InvalidReplicaOfHost)?;
+-
+-        let port_of_host = match args.get(replica_arg_position + 2) {
+-            Some(port) => port,
+-            None => {
+-                return Err(SlaveConfigError::MissingReplicaOfPort);
+-            }
+-        };
+-        let port_of_host = port_of_host
+-            .parse::<Port>()
+-            .map_err(|_| SlaveConfigError::InvalidReplicaOfPort)?;
+-
+-        let replica_of = ReplicaOf::new(host_of_replica, port_of_host);
+-
+-        Ok(SlaveConfig {
+-            port: parse_port(args)?,
+-            replica_of,
+-        })
+-    }
+-    pub fn from_server_config(config: ServerConfig) -> Result<SlaveConfig, SlaveConfigError> {
+-        match config {
+-            ServerConfig::Slave(config) => Ok(config),
+-            _ => Err(SlaveConfigError::MissingReplicaOf),
+-        }
+-    }
+-}
+-
+-#[derive(Debug)]
+-pub enum SlaveConfigError {
+-    MissingReplicaOf,
+-    MissingReplicaOfHost,
+-    MissingReplicaOfPort,
+-    InvalidReplicaOfHost,
+-    InvalidReplicaOfPort,
+-    InvalidPort(PortError),
+-}
+-impl From<PortError> for SlaveConfigError {
+-    fn from(err: PortError) -> Self {
+-        SlaveConfigError::InvalidPort(err)
+-    }
+-}
+-impl Display for SlaveConfigError {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        match self {
+-            SlaveConfigError::MissingReplicaOf => write!(f, "Missing replicaof"),
+-            SlaveConfigError::MissingReplicaOfHost => write!(f, "Missing replicaof host"),
+-            SlaveConfigError::MissingReplicaOfPort => write!(f, "Missing replicaof port"),
+-            SlaveConfigError::InvalidReplicaOfHost => write!(f, "Invalid replicaof host"),
+-            SlaveConfigError::InvalidReplicaOfPort => write!(f, "Invalid replicaof port"),
+-            SlaveConfigError::InvalidPort(err) => write!(f, "Invalid port: {}", err),
+-        }
+-    }
+-}
+-
+-#[derive(Clone, Debug)]
+-pub struct MasterConfig {
+-    port: Port,
+-}
+-impl MasterConfig {
+-    pub fn port(&self) -> &Port {
+-        &self.port
+-    }
+-    pub fn from_args(args: &[&str]) -> Result<MasterConfig, MasterConfigError> {
+-        Ok(MasterConfig {
+-            port: parse_port(args)?,
+-        })
+-    }
+-    pub fn from_server_config(config: ServerConfig) -> Result<MasterConfig, MasterConfigError> {
+-        match config {
+-            ServerConfig::Master(config) => Ok(config),
+-            _ => Err(MasterConfigError::MissingPort),
+-        }
+-    }
+-}
+-
+-#[derive(Debug)]
+-pub enum MasterConfigError {
+-    MissingPort,
+-    InvalidPort(PortError),
+-}
+-impl From<PortError> for MasterConfigError {
+-    fn from(err: PortError) -> Self {
+-        MasterConfigError::InvalidPort(err)
+-    }
+-}
+-impl Display for MasterConfigError {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        match self {
+-            MasterConfigError::MissingPort => write!(f, "Missing port"),
+-            MasterConfigError::InvalidPort(err) => write!(f, "Invalid port: {}", err),
+-        }
+-    }
+-}
+-
+-fn parse_port(args: &[&str]) -> Result<Port, PortError> {
+-    let mut port = "6379"; // default port
+-
+-    if let Some(port_arg_position) = args.iter().position(|arg| *arg == "--port") {
+-        if args.len() > port_arg_position + 1 {
+-            port = &args[port_arg_position + 1];
+-        }
+-    }
+-
+-    port.parse()
+-}
+diff --git a/src/store.rs b/src/store.rs
+index aeb98d4..5bfa3c0 100644
+--- a/src/store.rs
++++ b/src/store.rs
+@@ -10,20 +10,24 @@ pub struct RedisValue {
+     expiration: Option<Instant>,
+ }
+ impl RedisValue {
+-    pub fn new(value: String, expiration: Option<Duration>) -> RedisValue {
++    #[must_use]
++    pub fn new(value: String, expiration: Option<Duration>) -> Self {
+         let expiration = expiration.map(|expiration| Instant::now() + expiration);
+-        RedisValue { value, expiration }
++        Self { value, expiration }
+     }
++    #[must_use]
+     pub fn value(&self) -> String {
+         self.value.to_string()
+     }
+-    pub fn expiration(&self) -> Option<Instant> {
++    #[must_use]
++    pub const fn expiration(&self) -> Option<Instant> {
+         self.expiration
+     }
+ }
+ pub type RedisStore = Arc<Mutex<HashMap<String, RedisValue>>>;
+ 
+ #[cfg(test)]
++#[allow(clippy::unwrap_used)]
+ mod tests {
+     use super::*;
+     use std::thread::sleep;
+@@ -49,7 +53,7 @@ mod tests {
+     fn test_redis_value_expiration() {
+         let value = "test".to_string();
+         let expiration = Some(Duration::from_secs(1));
+-        let redis_value = RedisValue::new(value.clone(), expiration);
++        let redis_value = RedisValue::new(value, expiration);
+         sleep(Duration::from_secs(2));
+         assert!(Instant::now() >= redis_value.expiration().unwrap());
+     }

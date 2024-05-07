@@ -83,8 +83,8 @@ impl From<BulkStringError> for ArrayError {
 impl Display for ArrayError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Utf8Error(err) => write!(f, "{}", err),
-            Self::ParseIntError(err) => write!(f, "{}", err),
+            Self::Utf8Error(err) => write!(f, "{err}"),
+            Self::ParseIntError(err) => write!(f, "{err}"),
             Self::MissingLength => write!(f, "Missing length in RESP Array"),
             Self::MissingData => {
                 write!(f, "Missing data in one of the bulks in RESP Array")
@@ -105,12 +105,12 @@ const PONG_RESPONSE: &[u8] = b"+PONG\r\n";
 const INVALID_BULK_RESPONSE: &[u8] = b"$12\r\nInvalid bulk\r\n";
 
 impl RedisResponse {
-    pub fn from_bytes(buf: &[u8]) -> RedisResponse {
+    pub fn from_bytes(buf: &[u8]) -> Self {
         match buf {
-            NULL_RESPONSE => RedisResponse::Null,
-            OK_RESPONSE => RedisResponse::Ok,
-            PONG_RESPONSE => RedisResponse::Pong,
-            INVALID_BULK_RESPONSE => RedisResponse::_InvalidBulk,
+            NULL_RESPONSE => Self::Null,
+            OK_RESPONSE => Self::Ok,
+            PONG_RESPONSE => Self::Pong,
+            INVALID_BULK_RESPONSE => Self::_InvalidBulk,
             _ => panic!("Invalid Redis response"),
         }
     }
@@ -121,7 +121,7 @@ impl Display for RedisResponse {
         write!(
             f,
             "{}",
-            std::str::from_utf8(&self.to_redis_bytes()).unwrap()
+            std::str::from_utf8(&self.to_redis_bytes()).expect("Redis response is not valid UTF-8")
         )
     }
 }
@@ -129,10 +129,10 @@ impl Display for RedisResponse {
 impl ToRedisBytes for RedisResponse {
     fn to_redis_bytes(&self) -> Vec<u8> {
         match self {
-            RedisResponse::Null => NULL_RESPONSE.to_vec(),
-            RedisResponse::Ok => OK_RESPONSE.to_vec(),
-            RedisResponse::Pong => PONG_RESPONSE.to_vec(),
-            RedisResponse::_InvalidBulk => INVALID_BULK_RESPONSE.to_vec(),
+            Self::Null => NULL_RESPONSE.to_vec(),
+            Self::Ok => OK_RESPONSE.to_vec(),
+            Self::Pong => PONG_RESPONSE.to_vec(),
+            Self::_InvalidBulk => INVALID_BULK_RESPONSE.to_vec(),
         }
     }
 }
@@ -143,15 +143,13 @@ pub struct BulkString {
     data: String,
 }
 impl BulkString {
-    pub fn length(&self) -> usize {
+    pub const fn length(&self) -> usize {
         self.length
     }
     pub fn data(&self) -> String {
         self.data.to_string()
     }
-    fn build_from_iter(
-        message: &mut std::str::Split<'_, &str>,
-    ) -> Result<BulkString, BulkStringError> {
+    fn build_from_iter(message: &mut std::str::Split<'_, &str>) -> Result<Self, BulkStringError> {
         let length = message
             .next()
             .ok_or(BulkStringError::MissingLength)?
@@ -162,13 +160,13 @@ impl BulkString {
             .ok_or(BulkStringError::MissingData)?
             .trim()
             .to_string();
-        Ok(BulkString { length, data })
+        Ok(Self { length, data })
     }
-    pub fn _from_bytes(buf: &[u8]) -> Result<BulkString, BulkStringError> {
+    pub fn _from_bytes(buf: &[u8]) -> Result<Self, BulkStringError> {
         let mut message = std::str::from_utf8(buf)?.lines();
         let length = match message.next().ok_or(BulkStringError::MissingLength)? {
             "+PONG" => {
-                return Ok(BulkString {
+                return Ok(Self {
                     length: 4,
                     data: "PONG".to_string(),
                 })
@@ -180,11 +178,11 @@ impl BulkString {
             .ok_or(BulkStringError::MissingData)?
             .trim()
             .to_string();
-        Ok(BulkString { length, data })
+        Ok(Self { length, data })
     }
 
-    pub fn from_string(s: &str) -> BulkString {
-        BulkString {
+    pub fn from_string(s: &str) -> Self {
+        Self {
             length: s.len(),
             data: s.to_string(),
         }
@@ -216,10 +214,10 @@ impl From<std::num::ParseIntError> for BulkStringError {
 impl Display for BulkStringError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BulkStringError::Utf8Error(err) => write!(f, "{}", err),
-            BulkStringError::ParseIntError(err) => write!(f, "{}", err),
-            BulkStringError::MissingLength => write!(f, "Missing length in bulk string"),
-            BulkStringError::MissingData => write!(f, "Missing data in bulk string"),
+            Self::Utf8Error(err) => write!(f, "{err}"),
+            Self::ParseIntError(err) => write!(f, "{err}"),
+            Self::MissingLength => write!(f, "Missing length in bulk string"),
+            Self::MissingData => write!(f, "Missing data in bulk string"),
         }
     }
 }
@@ -243,6 +241,7 @@ impl ToRedisBytes for String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -251,7 +250,7 @@ mod tests {
         let buf = b"$5\r\nhello\r\n";
         let bulk = BulkString::_from_bytes(buf);
         assert_eq!(bulk.clone().unwrap().length(), 5);
-        assert_eq!(bulk.clone().unwrap().data(), "hello");
+        assert_eq!(bulk.unwrap().data(), "hello");
     }
 
     #[test]
@@ -269,7 +268,7 @@ mod tests {
         let bulk_string = Array::from_bytes(buf);
         assert_eq!(bulk_string.clone().unwrap().bulkstrings().len(), 2);
         assert_eq!(bulk_string.clone().unwrap().bulkstrings()[0].data(), "foo");
-        assert_eq!(bulk_string.clone().unwrap().bulkstrings()[1].data(), "bar");
+        assert_eq!(bulk_string.unwrap().bulkstrings()[1].data(), "bar");
     }
 
     #[test]

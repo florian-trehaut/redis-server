@@ -6,7 +6,7 @@ use std::{
     thread,
 };
 
-use crate::{ClientHandler, RedisStore, ServerConfig};
+use crate::{ClientHandler, Config, RedisStore};
 
 pub mod master;
 pub mod slave;
@@ -24,7 +24,7 @@ pub trait Create {
     /// # Errors
     ///
     /// If the instance fails to be created, a `ConfigError` is returned.
-    fn new(config: ServerConfig) -> Result<Self::Instance, Self::ConfigError>;
+    fn new(config: Config) -> Result<Self::Instance, Self::ConfigError>;
 }
 
 /// Trait for running a Redis instance.
@@ -39,7 +39,7 @@ pub trait Run {
     /// # Errors
     ///
     /// If the instance fails to run, an `Error` is returned.
-    fn run(&self, config: ServerConfig) -> Result<(), Self::Error>;
+    fn run(&self, config: Config) -> Result<(), Self::Error>;
 }
 
 /// Trait for listening to incoming connections.
@@ -54,7 +54,7 @@ pub trait Listen {
     /// # Errors
     ///
     /// If the listener fails to bind to the address, an `Error` is returned.
-    fn listen(&self, config: ServerConfig) -> Result<TcpListener, Self::Error>;
+    fn listen(&self, config: Config) -> Result<TcpListener, Self::Error>;
 }
 
 /// Represents a Redis instance.
@@ -77,7 +77,7 @@ impl Listen for Redis {
     ///
     /// Returns a `TcpListener` if the listening is successful, otherwise returns an `Error`.
     type Error = Error;
-    fn listen(&self, config: ServerConfig) -> Result<TcpListener, Error> {
+    fn listen(&self, config: Config) -> Result<TcpListener, Error> {
         println!("Listening on port {}", config.port());
         let listener = TcpListener::bind(format!("127.0.0.1:{}", config.port()))?;
         Ok(listener)
@@ -91,7 +91,7 @@ impl Run for Redis {
     ///
     /// Returns `Ok(())` if the instance runs successfully, otherwise returns an `Error`.
     type Error = Error;
-    fn run(&self, config: ServerConfig) -> Result<(), Error> {
+    fn run(&self, config: Config) -> Result<(), Error> {
         let listener = self.listen(config.clone())?;
         let mut threads: Vec<_> = vec![];
         for stream in listener.incoming() {

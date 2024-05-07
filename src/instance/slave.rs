@@ -1,7 +1,7 @@
 use crate::{
     resp::{Array, RedisResponse, ToRedisBytes},
-    server_config::server_config::SlaveConfigError,
-    ServerConfig, SlaveConfig,
+    server_config::server::SlaveConfigError,
+    Config, SlaveConfig,
 };
 
 use super::{Create, Redis, Run};
@@ -18,7 +18,7 @@ pub struct RedisSlaveInstance {
 impl Create for RedisSlaveInstance {
     type Instance = Self;
     type ConfigError = SlaveConfigError;
-    fn new(config: ServerConfig) -> Result<Self, Self::ConfigError> {
+    fn new(config: Config) -> Result<Self, Self::ConfigError> {
         let instance = Redis::new();
         let config = SlaveConfig::from_server_config(config)?;
         Ok(Self { instance, config })
@@ -27,7 +27,7 @@ impl Create for RedisSlaveInstance {
 
 impl Run for RedisSlaveInstance {
     type Error = Error;
-    fn run(&self, config: ServerConfig) -> Result<(), Error> {
+    fn run(&self, config: Config) -> Result<(), Error> {
         match self.handshake() {
             Ok(()) => println!(
                 "Successful handshake with master {}",

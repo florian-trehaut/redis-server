@@ -5,22 +5,26 @@ use crate::Port;
 use super::host::Host;
 
 #[derive(Clone, Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct ReplicaOf {
     host_address: Host,
     port: Port,
 }
 
 impl ReplicaOf {
-    pub fn new(host: Host, port: Port) -> Self {
+    #[must_use]
+    pub const fn new(host: Host, port: Port) -> Self {
         Self {
             host_address: host,
             port,
         }
     }
-    pub fn host_address(&self) -> &Host {
+    #[must_use]
+    pub const fn host_address(&self) -> &Host {
         &self.host_address
     }
-    pub fn port(&self) -> &Port {
+    #[must_use]
+    pub const fn port(&self) -> &Port {
         &self.port
     }
 }
@@ -32,6 +36,7 @@ impl Display for ReplicaOf {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -51,6 +56,6 @@ mod tests {
         let port = Port::new(8080).unwrap();
         let replica_of = ReplicaOf::new(host, port);
 
-        assert_eq!(format!("{}", replica_of), "192.168.0.1:8080");
+        assert_eq!(format!("{replica_of}"), "192.168.0.1:8080");
     }
 }

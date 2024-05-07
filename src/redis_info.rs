@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{resp::BulkString, ServerConfig};
+use crate::{resp::BulkString, Config};
 
 pub struct RedisInfo {
     role: Role,
@@ -8,10 +8,10 @@ pub struct RedisInfo {
     master_repl_offset: Offset,
 }
 impl RedisInfo {
-    pub fn new(server_config: &ServerConfig) -> Self {
+    pub fn new(server_config: &Config) -> Self {
         let role = match server_config {
-            ServerConfig::Master(_) => Role::Master,
-            ServerConfig::Slave(_) => Role::Slave,
+            Config::Master(_) => Role::Master,
+            Config::Slave(_) => Role::Slave,
         };
         Self {
             role,

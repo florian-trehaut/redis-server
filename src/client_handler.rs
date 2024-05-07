@@ -10,7 +10,7 @@ use crate::{
     redis_commands::RedisCommands,
     redis_info::RedisInfo,
     resp::{Array, BulkString, RedisResponse, ToRedisBytes},
-    RedisStore, RedisValue, ServerConfig,
+    Config, RedisStore, RedisValue,
 };
 
 pub struct ClientHandler {
@@ -19,7 +19,7 @@ pub struct ClientHandler {
 }
 
 impl ClientHandler {
-    pub fn new(store: RedisStore, server_config: &ServerConfig) -> Self {
+    pub fn new(store: RedisStore, server_config: &Config) -> Self {
         let server_info = RedisInfo::new(server_config);
         Self { store, server_info }
     }
