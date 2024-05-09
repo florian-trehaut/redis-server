@@ -1,4 +1,5 @@
 use crate::{
+    redis_commands::RedisCommands,
     resp::{Array, RedisResponse, ToRedisBytes},
     server_config::server::SlaveConfigError,
     Config, SlaveConfig,
@@ -47,22 +48,22 @@ impl RedisSlaveInstance {
             self.config.replica_of().host_address(),
             self.config.replica_of().port()
         );
+        let mut stream = TcpStream::connect(format!(
+            "{}:{}",
+            self.config.replica_of().host_address(),
+            self.config.replica_of().port()
+        ))?;
+
         println!("Sending ping...");
-        self.send_ping()?;
+        Self::send_ping(&mut stream)?;
         println!("Sending first replconf...");
-        self.send_replconf()?;
+        self.send_replconf(&mut stream)?;
         Ok(())
     }
 
-    fn send_ping(&self) -> Result<(), Error> {
-        let mut stream = TcpStream::connect(format!(
-            "{}:{}",
-            self.config.replica_of().host_address().clone(),
-            self.config.replica_of().port().clone()
-        ))?;
-
-        let ping_command = "*1\r\n$4\r\nPING\r\n"; // Todo: To struct
-        stream.write_all(ping_command.as_bytes())?;
+    fn send_ping(stream: &mut TcpStream) -> Result<(), Error> {
+        let ping_command = RedisCommands::Ping;
+        stream.write_all(&ping_command.to_redis_bytes())?;
         let buf_answer = &mut [0; 1024];
         let n = stream.read(buf_answer)?;
 
@@ -76,17 +77,10 @@ impl RedisSlaveInstance {
         }
         Ok(())
     }
-    fn send_replconf(&self) -> Result<(), Error> {
-        let repl_conf_command = Array::from_string(&format!(
-            "REPLCONF listening-port {}",
-            &self.config.replica_of().port()
-        ));
-        let replica_config = self.config.replica_of();
-        let mut stream = TcpStream::connect(format!(
-            "{}:{}",
-            replica_config.host_address(),
-            replica_config.port()
-        ))?;
+    fn send_replconf(&self, stream: &mut TcpStream) -> Result<(), Error> {
+        let repl_conf_command =
+            Array::from_string(&format!("REPLCONF listening-port {}", &self.config.port()));
+        println!("Sending to master : '{repl_conf_command}'");
         stream.write_all(&repl_conf_command.to_redis_bytes())?;
         let buf = &mut [0; 1024];
         let n = stream.read(buf)?;
@@ -100,6 +94,7 @@ impl RedisSlaveInstance {
             }
         }
         let repl_conf_command = Array::from_string("REPLCONF capa psync2");
+        println!("Sending to master : '{repl_conf_command}'");
         stream.write_all(&repl_conf_command.to_redis_bytes())?;
         let buf = &mut [0; 1024];
         let n = stream.read(buf)?;

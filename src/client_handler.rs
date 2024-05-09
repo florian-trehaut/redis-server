@@ -9,7 +9,7 @@ use std::{
 use crate::{
     redis_commands::RedisCommands,
     redis_info::RedisInfo,
-    resp::{Array, BulkString, RedisResponse, ToRedisBytes},
+    resp::{BulkString, RedisResponse, ToRedisBytes, Type},
     Config, RedisStore, RedisValue,
 };
 
@@ -30,20 +30,21 @@ impl ClientHandler {
             if n == 0 {
                 break;
             }
-            let command = match Array::from_bytes(&buf[..n]) {
+            // We must first determine the type of command we received (Array, BulkString, simple string...)
+            let command = match Type::from_bytes(&buf[..n]) {
                 Ok(command) => command,
                 Err(e) => {
-                    eprintln!("Error parsing command: {e}");
+                    eprintln!("Error determining command type: {e}");
                     Self::respond(&RedisResponse::Null, stream);
                     continue;
                 }
             };
-            println!("Received RESPArray: {command}");
+
             let redis_command = match RedisCommands::parse(&command) {
                 Ok(redis_command) => redis_command,
                 Err(e) => {
                     eprintln!("Error parsing command: {e}");
-                    Self::respond(&e, stream);
+                    Self::respond(&RedisResponse::Null, stream);
                     continue;
                 }
             };
@@ -71,6 +72,7 @@ impl ClientHandler {
     }
     fn set(&self, key: &str, value: String, expiration: Option<Duration>, stream: &mut TcpStream) {
         let value = RedisValue::new(value, expiration);
+        println!("Inserting key:{key} with value:{value}");
 
         match self.store.lock() {
             Ok(mut store) => store.insert(key.to_string(), value),

@@ -1,6 +1,5 @@
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
+    fmt::Display,
     time::{Duration, Instant},
 };
 
@@ -24,13 +23,32 @@ impl RedisValue {
         self.expiration
     }
 }
-pub type RedisStore = Arc<Mutex<HashMap<String, RedisValue>>>;
+
+impl Display for RedisValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.expiration {
+            Some(expiration) => write!(
+                f,
+                "{}:{}ms",
+                self.value,
+                expiration.duration_since(Instant::now()).as_millis()
+            ),
+            None => write!(f, "{}", self.value),
+        }
+    }
+}
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::significant_drop_tightening)]
 mod tests {
+    use crate::RedisStore;
+
     use super::*;
-    use std::thread::sleep;
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+        thread::sleep,
+    };
 
     #[test]
     fn test_redis_value_new() {
