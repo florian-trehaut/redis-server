@@ -20,7 +20,7 @@ impl RedisInfo {
         }
     }
     pub fn to_bulk_string(&self) -> BulkString {
-        BulkString::from_string(format!("{self}").as_str())
+        BulkString::from(format!("{self}").as_str())
     }
 }
 impl Display for RedisInfo {

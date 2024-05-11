@@ -67,7 +67,7 @@ impl ClientHandler {
 
     fn echo(message: &[BulkString], stream: &mut TcpStream) {
         let message = message.iter().map(BulkString::data).collect::<String>();
-        let message = BulkString::from_string(&message);
+        let message = BulkString::from(message.as_str());
         Self::respond(&message, stream);
     }
     fn set(&self, key: &str, value: String, expiration: Option<Duration>, stream: &mut TcpStream) {
@@ -120,7 +120,7 @@ impl ClientHandler {
     fn info(&self, section: &str, stream: &mut TcpStream) {
         let info = match section.to_lowercase().as_str() {
             "replication" => self.server_info.to_bulk_string(),
-            _ => BulkString::from_string("Unknown section"),
+            _ => BulkString::from("Unknown section"),
         };
         Self::respond(&info, stream);
     }

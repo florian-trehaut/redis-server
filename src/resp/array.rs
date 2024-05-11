@@ -30,8 +30,12 @@ impl Array {
         Ok(Self { bulkstrings: bulks })
     }
     pub fn from_string(s: &str) -> Self {
-        let bulkstrings: Vec<BulkString> =
-            s.split_whitespace().map(BulkString::from_string).collect();
+        let bulkstrings: Vec<BulkString> = s.split_whitespace().map(BulkString::from).collect();
+        Self { bulkstrings }
+    }
+}
+impl From<Vec<BulkString>> for Array {
+    fn from(bulkstrings: Vec<BulkString>) -> Self {
         Self { bulkstrings }
     }
 }

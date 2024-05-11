@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::resp::{Array, BulkString, SimpleString, ToRedisBytes, Type};
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum RedisCommands {
     Ping,
     Echo(Vec<BulkString>),
@@ -139,5 +140,86 @@ impl ToRedisBytes for RedisCommandError {
         format!("${}\r\n{}\r\n", self.to_string().len(), self)
             .as_bytes()
             .to_vec()
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_ping_command() {
+        let command = Type::SimpleString(SimpleString::from_bytes(b"+PING\r\n\r\n").unwrap());
+        let result = RedisCommands::parse(&command).unwrap();
+        assert_eq!(result, RedisCommands::Ping);
+    }
+
+    #[test]
+    fn test_parse_echo_command() {
+        let command = Type::Array(Array::from(vec![
+            BulkString::from("ECHO"),
+            BulkString::from("Hello"),
+            BulkString::from("World"),
+        ]));
+        let result = RedisCommands::parse(&command).unwrap();
+        assert_eq!(
+            result,
+            RedisCommands::Echo(vec![BulkString::from("Hello"), BulkString::from("World"),])
+        );
+    }
+
+    #[test]
+    fn test_parse_get_command() {
+        let command = Type::Array(Array::from(vec![
+            BulkString::from("GET"),
+            BulkString::from("mykey"),
+        ]));
+        let result = RedisCommands::parse(&command).unwrap();
+        assert_eq!(result, RedisCommands::Get("mykey".to_string()));
+    }
+
+    #[test]
+    fn test_parse_set_command() {
+        let command = Type::Array(Array::from(vec![
+            BulkString::from("SET"),
+            BulkString::from("mykey"),
+            BulkString::from("myvalue"),
+            BulkString::from("EX"),
+            BulkString::from("1000"),
+        ]));
+        let result = RedisCommands::parse(&command).unwrap();
+        assert_eq!(
+            result,
+            RedisCommands::Set((
+                "mykey".to_string(),
+                "myvalue".to_string(),
+                Some(Duration::from_millis(1000))
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_info_command() {
+        let command = Type::Array(Array::from(vec![
+            BulkString::from("INFO"),
+            BulkString::from("server"),
+        ]));
+        let result = RedisCommands::parse(&command).unwrap();
+        assert_eq!(result, RedisCommands::Info("server".to_string()));
+    }
+
+    #[test]
+    fn test_parse_replconf_command() {
+        let command = Type::Array(Array::from(vec![
+            BulkString::from("REPLCONF"),
+            BulkString::from("listening-port"),
+            BulkString::from("1234"),
+        ]));
+        let result = RedisCommands::parse(&command).unwrap();
+        assert_eq!(
+            result,
+            RedisCommands::Replconf("listening-port".to_string(), "1234".to_string())
+        );
     }
 }

@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use super::ToRedisBytes;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BulkString {
     length: usize,
     data: String,
@@ -47,8 +47,9 @@ impl BulkString {
             .to_string();
         Ok(Self { length, data })
     }
-
-    pub fn from_string(s: &str) -> Self {
+}
+impl From<&str> for BulkString {
+    fn from(s: &str) -> Self {
         Self {
             length: s.len(),
             data: s.to_string(),

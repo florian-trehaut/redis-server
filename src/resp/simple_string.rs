@@ -1,5 +1,15 @@
 use std::fmt::Display;
 
+/// Represents a simple string in RESP protocol
+/// A simple string is a string prefixed with '+'
+///
+/// # Example
+/// ```
+/// use redis_protocol_parser::resp::SimpleString;
+///
+/// let simple_string = SimpleString::from_bytes(b"+OK\r\n").unwrap();
+/// assert_eq!(simple_string.data(), "OK");
+/// ```
 #[derive(Clone, Debug)]
 pub struct SimpleString {
     data: String,
@@ -8,11 +18,7 @@ impl SimpleString {
     pub fn data(&self) -> &str {
         &self.data
     }
-    pub fn _from_string(s: &str) -> Self {
-        Self {
-            data: s.to_string(),
-        }
-    }
+
     pub fn from_bytes(buf: &[u8]) -> Result<Self, SimpleStringError> {
         let string = std::str::from_utf8(buf)?;
         if string.starts_with('+') {
@@ -25,6 +31,7 @@ impl SimpleString {
     }
 }
 
+#[derive(Debug)]
 pub enum SimpleStringError {
     Utf8Error(std::str::Utf8Error),
     InvalidSimpleString,
