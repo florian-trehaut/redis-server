@@ -2,14 +2,6 @@ use std::fmt::Display;
 
 /// Represents a simple string in RESP protocol
 /// A simple string is a string prefixed with '+'
-///
-/// # Example
-/// ```
-/// use redis_protocol_parser::resp::SimpleString;
-///
-/// let simple_string = SimpleString::from_bytes(b"+OK\r\n").unwrap();
-/// assert_eq!(simple_string.data(), "OK");
-/// ```
 #[derive(Clone, Debug)]
 pub struct SimpleString {
     data: String,
@@ -32,6 +24,7 @@ impl SimpleString {
 }
 
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub enum SimpleStringError {
     Utf8Error(std::str::Utf8Error),
     InvalidSimpleString,

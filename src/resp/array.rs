@@ -62,6 +62,7 @@ impl ToRedisBytes for Array {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::module_name_repetitions)]
 pub enum ArrayError {
     Utf8Error(std::str::Utf8Error),
     ParseIntError(std::num::ParseIntError),
