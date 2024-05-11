@@ -56,8 +56,10 @@ impl ClientHandler {
                     self.set(&key, value, expiration, stream);
                 }
                 RedisCommands::Info(section) => self.info(&section, stream),
-                RedisCommands::Replconf(command, value) => Self::replconf(&command, &value, stream),
-                RedisCommands::Psync(_, _) => todo!(),
+                RedisCommands::Replconf(_, _) => {
+                    Self::respond(&RedisResponse::Ok, stream);
+                }
+                RedisCommands::Psync(_, _) => Self::respond(&RedisResponse::Ok, stream),
             }
         }
     }
@@ -124,10 +126,6 @@ impl ClientHandler {
             _ => BulkString::from("Unknown section"),
         };
         Self::respond(&info, stream);
-    }
-
-    fn replconf(_command: &str, _value: &str, stream: &mut TcpStream) {
-        Self::respond(&RedisResponse::Ok, stream);
     }
 
     fn respond(response: &impl ToRedisBytes, stream: &mut TcpStream) {
