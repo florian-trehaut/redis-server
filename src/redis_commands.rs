@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::resp::{Array, BulkString, SimpleString, ToRedisBytes, Type};
+use crate::server_config::{Offset, ReplicationId};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RedisCommands {
@@ -10,6 +11,7 @@ pub enum RedisCommands {
     Set((String, String, Option<Duration>)),
     Info(String),
     Replconf(String, String),
+    Psync(ReplicationId, Offset),
 }
 impl ToRedisBytes for RedisCommands {
     fn to_redis_bytes(&self) -> Vec<u8> {
@@ -17,6 +19,13 @@ impl ToRedisBytes for RedisCommands {
             Self::Ping => format!("*1\r\n${}\r\n{}\r\n", "PING".len(), "PING")
                 .as_bytes()
                 .to_vec(),
+            Self::Psync(replication_id, offset) => format!(
+                "*3\r\n$5\r\nPSYNC\r\n${}\r\n{replication_id}\r\n${}\r\n{offset}\r\n",
+                replication_id.len(),
+                offset.len()
+            )
+            .as_bytes()
+            .to_vec(),
             Self::Echo(_) => todo!(),
             Self::Get(_) => todo!(),
             Self::Set(_) => todo!(),

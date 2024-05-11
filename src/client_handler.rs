@@ -57,6 +57,7 @@ impl ClientHandler {
                 }
                 RedisCommands::Info(section) => self.info(&section, stream),
                 RedisCommands::Replconf(command, value) => Self::replconf(&command, &value, stream),
+                RedisCommands::Psync(_, _) => todo!(),
             }
         }
     }

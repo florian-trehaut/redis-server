@@ -1,7 +1,7 @@
 use crate::{
     redis_commands::RedisCommands,
     resp::{Array, RedisResponse, ToRedisBytes},
-    server_config::server::SlaveConfigError,
+    server_config::{server::SlaveConfigError, Offset, ReplicationId},
     Config, SlaveConfig,
 };
 
@@ -58,6 +58,7 @@ impl RedisSlaveInstance {
         Self::send_ping(&mut stream)?;
         println!("Sending first replconf...");
         self.send_replconf(&mut stream)?;
+        Self::send_psync(&mut stream, None, None)?;
         Ok(())
     }
 
@@ -108,6 +109,21 @@ impl RedisSlaveInstance {
                 panic!()
             }
         }
+        Ok(())
+    }
+    fn send_psync(
+        stream: &mut TcpStream,
+        replication_id: Option<ReplicationId>,
+        offset: Option<Offset>,
+    ) -> Result<(), Error> {
+        let replication_id = replication_id.map_or_else(|| ReplicationId::parse(None), |id| id);
+        let offset = offset.map_or_else(|| Offset::parse(None), |off| off);
+        let command = RedisCommands::Psync(replication_id, offset).to_redis_bytes();
+        println!(
+            "Slave sending PSync command: '{}'",
+            String::from_utf8_lossy(&command)
+        );
+        stream.write_all(&command)?;
         Ok(())
     }
 }
