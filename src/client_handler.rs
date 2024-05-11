@@ -59,7 +59,8 @@ impl ClientHandler {
                 RedisCommands::Replconf(_, _) => {
                     Self::respond(&RedisResponse::Ok, stream);
                 }
-                RedisCommands::Psync(_, _) => Self::respond(&RedisResponse::Ok, stream),
+                RedisCommands::Psync(_, _) => self.psync(stream),
+                RedisCommands::FullResync(_, _) => (),
             }
         }
     }
@@ -126,6 +127,14 @@ impl ClientHandler {
             _ => BulkString::from("Unknown section"),
         };
         Self::respond(&info, stream);
+    }
+
+    fn psync(&self, stream: &mut TcpStream) {
+        let command = RedisCommands::FullResync(
+            self.server_info.master_replid().to_owned(),
+            self.server_info.master_repl_offset().to_owned(),
+        );
+        Self::respond(&command, stream);
     }
 
     fn respond(response: &impl ToRedisBytes, stream: &mut TcpStream) {

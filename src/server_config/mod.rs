@@ -30,7 +30,7 @@ pub type RedisStore = Arc<Mutex<HashMap<String, RedisValue>>>;
 /// Represents a replication ID in Redis.
 ///
 /// The replication ID is a unique identifier used by Redis for replication.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ReplicationId(String);
 impl ReplicationId {
     /// Returns the length of the replication ID.
@@ -54,7 +54,7 @@ impl Display for ReplicationId {
 /// Represents an offset in Redis.
 ///
 /// The offset is used in Redis for various operations, such as string manipulation and replication.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Offset(i8);
 impl Offset {
     /// Returns the length of the offset.

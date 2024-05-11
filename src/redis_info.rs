@@ -1,26 +1,39 @@
 use std::fmt::Display;
 
-use crate::{resp::BulkString, Config};
+use crate::{
+    resp::BulkString,
+    server_config::{Offset, ReplicationId},
+    Config,
+};
 
 pub struct RedisInfo {
     role: Role,
-    master_replid: Id,
+    master_replid: ReplicationId,
     master_repl_offset: Offset,
 }
 impl RedisInfo {
     pub fn new(server_config: &Config) -> Self {
-        let role = match server_config {
-            Config::Master(_) => Role::Master,
-            Config::Slave(_) => Role::Slave,
-        };
-        Self {
-            role,
-            master_replid: Id::new(),
-            master_repl_offset: Offset::new(),
+        match server_config {
+            Config::Master(_) => Self {
+                role: Role::Master,
+                master_replid: ReplicationId::parse(Some("Master".to_string())),
+                master_repl_offset: Offset::parse(Some(0)),
+            },
+            Config::Slave(_) => Self {
+                role: Role::Slave,
+                master_replid: ReplicationId::parse(None),
+                master_repl_offset: Offset::parse(None),
+            },
         }
     }
     pub fn to_bulk_string(&self) -> BulkString {
         BulkString::from(format!("{self}").as_str())
+    }
+    pub const fn master_replid(&self) -> &ReplicationId {
+        &self.master_replid
+    }
+    pub const fn master_repl_offset(&self) -> &Offset {
+        &self.master_repl_offset
     }
 }
 impl Display for RedisInfo {
@@ -42,35 +55,5 @@ impl Display for Role {
             Self::Master => write!(f, "master"),
             Self::Slave => write!(f, "slave"),
         }
-    }
-}
-#[derive(Debug, Clone)]
-struct Id(String);
-impl Id {
-    fn new() -> Self {
-        Self("id".to_string())
-    }
-    fn get(&self) -> &str {
-        &self.0
-    }
-}
-impl Display for Id {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.get())
-    }
-}
-#[derive(Debug, Clone)]
-struct Offset(u64);
-impl Offset {
-    const fn new() -> Self {
-        Self(0)
-    }
-    const fn get(&self) -> u64 {
-        self.0
-    }
-}
-impl Display for Offset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.get())
     }
 }

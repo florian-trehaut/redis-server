@@ -12,6 +12,7 @@ pub enum RedisCommands {
     Info(String),
     Replconf(String, String),
     Psync(ReplicationId, Offset),
+    FullResync(ReplicationId, Offset),
 }
 impl ToRedisBytes for RedisCommands {
     fn to_redis_bytes(&self) -> Vec<u8> {
@@ -26,6 +27,11 @@ impl ToRedisBytes for RedisCommands {
             )
             .as_bytes()
             .to_vec(),
+            Self::FullResync(replication_id, offset) => {
+                format!("+FULLRESYNC {replication_id} {offset}\r\n")
+                    .as_bytes()
+                    .to_vec()
+            }
             Self::Echo(_) => todo!(),
             Self::Get(_) => todo!(),
             Self::Set(_) => todo!(),
@@ -99,6 +105,23 @@ impl RedisCommands {
                     .to_string();
                 Ok(Self::Replconf(command, value))
             }
+            "psync" => {
+                let replication_id = ReplicationId::parse(Some(
+                    bulkstrings
+                        .get(1)
+                        .ok_or(RedisCommandError::MissingPsyncReplId)?
+                        .to_string(),
+                ));
+                let replication_offset = Offset::parse(Some(
+                    bulkstrings
+                        .get(2)
+                        .ok_or(RedisCommandError::MissingPsyncReplOffset)?
+                        .to_string()
+                        .parse::<i8>()
+                        .map_err(|e| RedisCommandError::InvalidPsyncOffset(e.to_string()))?,
+                ));
+                Ok(Self::Psync(replication_id, replication_offset))
+            }
             command => Err(RedisCommandError::InvalidCommand(command.to_string())),
         }
     }
@@ -125,6 +148,9 @@ pub enum RedisCommandError {
     EmptySetKeyOrValue,
     EmptyReplConfCommand,
     EmptyReplConfValue,
+    MissingPsyncReplId,
+    MissingPsyncReplOffset,
+    InvalidPsyncOffset(String),
 }
 impl std::fmt::Display for RedisCommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -140,6 +166,9 @@ impl std::fmt::Display for RedisCommandError {
             Self::EmptySetKeyOrValue => write!(f, "Empty set key or value"),
             Self::EmptyReplConfCommand => write!(f, "Empty replconf command"),
             Self::EmptyReplConfValue => write!(f, "Empty replconf value"),
+            Self::MissingPsyncReplId => write!(f, "Missing Psync replication ID"),
+            Self::MissingPsyncReplOffset => write!(f, "Missing Psync replication offset"),
+            Self::InvalidPsyncOffset(offset) => write!(f, "Invalid Psync offset :'{offset}'"),
         }
     }
 }
