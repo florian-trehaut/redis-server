@@ -1,7 +1,7 @@
-use std::time::Duration;
-
 use crate::resp::{Array, BulkString, SimpleString, ToRedisBytes, Type};
 use crate::server_config::{Offset, ReplicationId};
+use std::fmt::Display;
+use std::time::Duration;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RedisCommands {
@@ -41,143 +41,99 @@ impl ToRedisBytes for RedisCommands {
     }
 }
 impl RedisCommands {
-    pub fn parse(command: &Type) -> Result<Self, RedisCommandError> {
-        let redis_command = match command {
-            Type::Array(array) => Self::handle_array(array)?,
-            Type::BulkString(bulkstring) => Self::handle_bulkstring(bulkstring)?,
-            Type::SimpleString(simplestring) => Self::handle_simplestring(simplestring)?,
-        };
-        Ok(redis_command)
+    pub fn parse(command: &Type) -> Self {
+        match command {
+            Type::Array(array) => Self::handle_array(array),
+            Type::BulkString(bulkstring) => Self::handle_bulkstring(bulkstring),
+            Type::SimpleString(simplestring) => Self::handle_simplestring(simplestring),
+        }
     }
 
-    fn handle_array(array: &Array) -> Result<Self, RedisCommandError> {
+    fn handle_array(array: &Array) -> Self {
         let bulkstrings = array.bulkstrings();
 
-        let command = bulkstrings.first().ok_or(RedisCommandError::EmptyCommand)?;
+        let command = bulkstrings.first().expect("No command found");
         match command.to_string().to_lowercase().as_str() {
-            "ping" => Ok(Self::Ping),
-            "echo" => Ok(Self::Echo(
-                bulkstrings.get(1..).unwrap_or_default().to_vec(),
-            )),
-            "get" => Ok(Self::Get(
-                bulkstrings
-                    .get(1)
-                    .ok_or(RedisCommandError::EmptyGetCommand)?
-                    .to_string(),
-            )),
+            "ping" => Self::Ping,
+            "echo" => Self::Echo(bulkstrings.get(1..).unwrap_or_default().to_vec()),
+            "get" => Self::Get(bulkstrings.get(1).expect("No key found").to_string()),
             "set" => {
-                let key = bulkstrings
-                    .get(1)
-                    .ok_or(RedisCommandError::EmptySetKeyOrValue)?
-                    .to_string();
-                let value = bulkstrings
-                    .get(2)
-                    .ok_or(RedisCommandError::EmptySetKeyOrValue)?
-                    .to_string();
+                let key = bulkstrings.get(1).expect("Set has no key").to_string();
+                let value = bulkstrings.get(2).expect("Set has no value").to_string();
                 let expiration = if bulkstrings.get(3).is_some() {
                     Some(Duration::from_millis(
                         bulkstrings
                             .get(4)
-                            .ok_or(RedisCommandError::MissingSetExpiration)?
+                            .expect("Set has expiration parameter but no expiration value")
                             .to_string()
                             .parse::<u64>()
-                            .map_err(|e| RedisCommandError::InvalidSetExpiration(e.to_string()))?,
+                            .expect("Set has expiration parameter and value but value cannot be parsed as signed integer"),
                     ))
                 } else {
                     None
                 };
-                Ok(Self::Set((key, value, expiration)))
+                Self::Set((key, value, expiration))
             }
-            "info" => Ok(Self::Info(
+            "info" => Self::Info(
                 bulkstrings
                     .get(1)
-                    .ok_or(RedisCommandError::EmptyInfoSection)?
+                    .expect("Info requested but no category given")
                     .to_string(),
-            )),
+            ),
             "replconf" => {
                 let command = bulkstrings
                     .get(1)
-                    .ok_or(RedisCommandError::EmptyReplConfCommand)?
+                    .expect("Replfconf has no command")
                     .to_string();
                 let value = bulkstrings
                     .get(2)
-                    .ok_or(RedisCommandError::EmptyReplConfValue)?
+                    .expect("Replconf has no value")
                     .to_string();
-                Ok(Self::Replconf(command, value))
+                Self::Replconf(command, value)
             }
             "psync" => {
                 let replication_id = ReplicationId::parse(Some(
                     bulkstrings
                         .get(1)
-                        .ok_or(RedisCommandError::MissingPsyncReplId)?
+                        .expect("Psync has no replication ID")
                         .to_string(),
                 ));
                 let replication_offset = Offset::parse(Some(
                     bulkstrings
                         .get(2)
-                        .ok_or(RedisCommandError::MissingPsyncReplOffset)?
+                        .expect("Psync command has no replication offset")
                         .to_string()
                         .parse::<i8>()
-                        .map_err(|e| RedisCommandError::InvalidPsyncOffset(e.to_string()))?,
+                        .expect("Psync has replication offset but cannot be parsed as integer"),
                 ));
-                Ok(Self::Psync(replication_id, replication_offset))
+                Self::Psync(replication_id, replication_offset)
             }
-            command => Err(RedisCommandError::InvalidCommand(command.to_string())),
+            command => unimplemented!("Command '{command}' cannot be parsed"),
         }
     }
-    fn handle_simplestring(simplestring: &SimpleString) -> Result<Self, RedisCommandError> {
+    fn handle_simplestring(simplestring: &SimpleString) -> Self {
         let command = simplestring.data().trim().to_lowercase();
         match command.as_str() {
-            "ping" => Ok(Self::Ping),
-            _ => Err(RedisCommandError::InvalidCommand(command)),
+            "ping" => Self::Ping,
+            _ => unimplemented!("Simplestring command is unimplemented"),
         }
     }
-    fn handle_bulkstring(_bulkstring: &BulkString) -> Result<Self, RedisCommandError> {
+    fn handle_bulkstring(_bulkstring: &BulkString) -> Self {
         unimplemented!("Handle bulkstring in RedisCommand")
     }
 }
-
-#[derive(Debug)]
-pub enum RedisCommandError {
-    InvalidCommand(String),
-    EmptyCommand,
-    EmptyGetCommand,
-    MissingSetExpiration,
-    InvalidSetExpiration(String),
-    EmptyInfoSection,
-    EmptySetKeyOrValue,
-    EmptyReplConfCommand,
-    EmptyReplConfValue,
-    MissingPsyncReplId,
-    MissingPsyncReplOffset,
-    InvalidPsyncOffset(String),
-}
-impl std::fmt::Display for RedisCommandError {
+impl Display for RedisCommands {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidCommand(command) => write!(f, "Invalid command: '{command}'"),
-            Self::EmptyCommand => write!(f, "Empty command"),
-            Self::EmptyGetCommand => write!(f, "Empty get command"),
-            Self::InvalidSetExpiration(expiration) => {
-                write!(f, "Invalid set expiration: '{expiration}'")
-            }
-            Self::MissingSetExpiration => write!(f, "Expiration asked but no value given"),
-            Self::EmptyInfoSection => write!(f, "Empty info section"),
-            Self::EmptySetKeyOrValue => write!(f, "Empty set key or value"),
-            Self::EmptyReplConfCommand => write!(f, "Empty replconf command"),
-            Self::EmptyReplConfValue => write!(f, "Empty replconf value"),
-            Self::MissingPsyncReplId => write!(f, "Missing Psync replication ID"),
-            Self::MissingPsyncReplOffset => write!(f, "Missing Psync replication offset"),
-            Self::InvalidPsyncOffset(offset) => write!(f, "Invalid Psync offset :'{offset}'"),
+            Self::Ping => write!(f, "Ping"),
+            Self::Echo(_) => write!(f, "Echo"),
+            Self::Get(_) => write!(f, "Get"),
+            Self::Set(_) => write!(f, "Set"),
+            Self::Info(_) => write!(f, "Info"),
+            Self::Replconf(_, _) => write!(f, "Replconf"),
+            Self::Psync(_, _) => write!(f, "Psync"),
+            Self::FullResync(_, _) => write!(f, "FullResync"),
         }
-    }
-}
-
-impl ToRedisBytes for RedisCommandError {
-    fn to_redis_bytes(&self) -> Vec<u8> {
-        format!("${}\r\n{}\r\n", self.to_string().len(), self)
-            .as_bytes()
-            .to_vec()
     }
 }
 
@@ -188,8 +144,8 @@ mod tests {
 
     #[test]
     fn test_parse_ping_command() {
-        let command = Type::SimpleString(SimpleString::from_bytes(b"+PING\r\n\r\n").unwrap());
-        let result = RedisCommands::parse(&command).unwrap();
+        let command = Type::SimpleString(SimpleString::from_bytes(b"+PING\r\n\r\n"));
+        let result = RedisCommands::parse(&command);
         assert_eq!(result, RedisCommands::Ping);
     }
 
@@ -200,7 +156,7 @@ mod tests {
             BulkString::from("Hello"),
             BulkString::from("World"),
         ]));
-        let result = RedisCommands::parse(&command).unwrap();
+        let result = RedisCommands::parse(&command);
         assert_eq!(
             result,
             RedisCommands::Echo(vec![BulkString::from("Hello"), BulkString::from("World"),])
@@ -213,7 +169,7 @@ mod tests {
             BulkString::from("GET"),
             BulkString::from("mykey"),
         ]));
-        let result = RedisCommands::parse(&command).unwrap();
+        let result = RedisCommands::parse(&command);
         assert_eq!(result, RedisCommands::Get("mykey".to_string()));
     }
 
@@ -226,7 +182,7 @@ mod tests {
             BulkString::from("EX"),
             BulkString::from("1000"),
         ]));
-        let result = RedisCommands::parse(&command).unwrap();
+        let result = RedisCommands::parse(&command);
         assert_eq!(
             result,
             RedisCommands::Set((
@@ -243,7 +199,7 @@ mod tests {
             BulkString::from("INFO"),
             BulkString::from("server"),
         ]));
-        let result = RedisCommands::parse(&command).unwrap();
+        let result = RedisCommands::parse(&command);
         assert_eq!(result, RedisCommands::Info("server".to_string()));
     }
 
@@ -254,7 +210,7 @@ mod tests {
             BulkString::from("listening-port"),
             BulkString::from("1234"),
         ]));
-        let result = RedisCommands::parse(&command).unwrap();
+        let result = RedisCommands::parse(&command);
         assert_eq!(
             result,
             RedisCommands::Replconf("listening-port".to_string(), "1234".to_string())

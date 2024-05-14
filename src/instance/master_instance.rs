@@ -1,10 +1,13 @@
-use crate::{redis_info::RedisInfo, ClientHandler, Config, Listen, MasterConfig, RedisStore};
+use crate::{
+    redis_commands::RedisCommands, redis_info::RedisInfo, resp::redis_response::RedisResponse,
+    ClientHandler, Config, Listen, MasterConfig, RedisStore,
+};
 
-use super::Run;
+use super::{client_handler::CommonCommands, Run};
 use std::{
     collections::HashMap,
     io::Error,
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::{Arc, Mutex},
     thread,
 };
@@ -14,7 +17,33 @@ pub struct MasterInstance {
     config: MasterConfig,
     redis_info: Arc<Mutex<RedisInfo>>,
 }
+impl CommonCommands for MasterInstance {
+    fn match_redis_command(
+        redis_command: crate::redis_commands::RedisCommands,
+        stream: &mut std::net::TcpStream,
+        store: &Arc<Mutex<std::collections::HashMap<String, crate::RedisValue>>>,
+        redis_info: &Arc<Mutex<RedisInfo>>,
+    ) {
+        match &redis_command {
+            RedisCommands::Ping => Self::ping(stream),
+            RedisCommands::Echo(message) => Self::echo(message, stream),
+            RedisCommands::Get(key) => Self::get(store, key, stream),
+            RedisCommands::Set((key, value, expiration)) => {
+                Self::set(store, key, value.clone(), expiration.to_owned(), stream);
+            }
+            RedisCommands::Info(section) => Self::info(redis_info, section, stream),
+            RedisCommands::Replconf(_, _) => {
+                Self::respond(&RedisResponse::Ok, stream);
+            }
+            RedisCommands::Psync(_, _) => Self::psync(redis_info, stream),
+            command => unimplemented!("{command} is unimplemented for Master"),
+        }
+        println!("Matched command '{redis_command}'");
+    }
+}
+
 impl ClientHandler for MasterInstance {}
+
 impl MasterInstance {
     #[must_use]
     pub fn new(config: MasterConfig) -> Self {
@@ -26,6 +55,22 @@ impl MasterInstance {
             redis_info,
         }
     }
+    fn psync(server_info: &Arc<Mutex<RedisInfo>>, stream: &mut TcpStream) {
+        println!("Received PYSNC command");
+
+        let replid;
+        let offset;
+        {
+            let server_info_locked = server_info
+                .lock()
+                .expect("Poisonned store when opening server info");
+            replid = server_info_locked.master_replid().to_owned();
+            offset = server_info_locked.master_repl_offset().to_owned();
+        }
+        let command = RedisCommands::FullResync(replid, offset);
+        println!("Unlocked redis_info");
+        Self::respond(&command, stream);
+    }
 }
 
 impl Run for MasterInstance {
@@ -35,11 +80,11 @@ impl Run for MasterInstance {
     ///
     /// Returns `Ok(())` if the instance runs successfully, otherwise returns an `Error`.
     type Error = Error;
-    fn run(&self) -> Result<(), Error> {
-        let listener = self.listen()?;
+    fn run(&self) {
+        let listener = self.listen();
         let mut threads: Vec<_> = vec![];
         for stream in listener.incoming() {
-            let mut stream = stream?;
+            let mut stream = stream.expect("Cannot read stream in master");
             let store = self.store.clone();
             let redis_info = self.redis_info.clone();
             threads.push(thread::spawn(move || {
@@ -49,7 +94,6 @@ impl Run for MasterInstance {
         for handle in threads {
             handle.join().expect("Panic occurred in thread");
         }
-        Ok(())
     }
 }
 
@@ -60,9 +104,10 @@ impl Listen for MasterInstance {
     ///
     /// Returns a `TcpListener` if the listening is successful, otherwise returns an `Error`.
     type Error = Error;
-    fn listen(&self) -> Result<TcpListener, Error> {
+    fn listen(&self) -> TcpListener {
         println!("Listening on port {}", self.config.port());
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", self.config.port()))?;
-        Ok(listener)
+
+        TcpListener::bind(format!("127.0.0.1:{}", self.config.port()))
+            .expect("Master cannot listen")
     }
 }

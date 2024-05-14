@@ -10,37 +10,11 @@ use std::{
 use crate::{
     redis_commands::RedisCommands,
     redis_info::RedisInfo,
-    resp::{BulkString, RedisResponse, ToRedisBytes, Type},
+    resp::{redis_response::RedisResponse, BulkString, ToRedisBytes, Type},
     RedisStore, RedisValue,
 };
 
-pub trait ClientHandler {
-    fn handle(redis_info: Arc<Mutex<RedisInfo>>, store: RedisStore, stream: &mut TcpStream) {
-        let mut buf = [0; 512];
-        while let Ok(n) = stream.read(&mut buf) {
-            if n == 0 {
-                break;
-            }
-            let Some(redis_command) = Self::parse_redis_command_from_stream(buf, n, stream) else {
-                continue;
-            };
-            match redis_command {
-                RedisCommands::Ping => Self::ping(stream),
-                RedisCommands::Echo(message) => Self::echo(&message, stream),
-                RedisCommands::Get(key) => Self::get(&store, &key, stream),
-                RedisCommands::Set((key, value, expiration)) => {
-                    Self::set(&store, &key, value, expiration, stream);
-                }
-                RedisCommands::Info(section) => Self::info(&redis_info, &section, stream),
-                RedisCommands::Replconf(_, _) => {
-                    Self::respond(&RedisResponse::Ok, stream);
-                }
-                RedisCommands::Psync(_, _) => Self::psync(&redis_info, stream),
-                RedisCommands::FullResync(_, _) => (),
-            }
-        }
-    }
-
+pub trait CommonCommands {
     fn ping(stream: &mut TcpStream) {
         Self::respond(&RedisResponse::Pong, stream);
     }
@@ -114,22 +88,6 @@ pub trait ClientHandler {
         Self::respond(&info, stream);
     }
 
-    fn psync(server_info: &Arc<Mutex<RedisInfo>>, stream: &mut TcpStream) {
-        let command = RedisCommands::FullResync(
-            server_info
-                .lock()
-                .expect("Poisonned store when getting server info")
-                .master_replid()
-                .to_owned(),
-            server_info
-                .lock()
-                .expect("Poisonned store when getting server info")
-                .master_repl_offset()
-                .to_owned(),
-        );
-        Self::respond(&command, stream);
-    }
-
     fn respond(response: &impl ToRedisBytes, stream: &mut TcpStream) {
         println!(
             "Responding with: {:?}",
@@ -142,28 +100,40 @@ pub trait ClientHandler {
         }
     }
 
-    fn parse_redis_command_from_stream(
-        buf: [u8; 512],
-        n: usize,
-        stream: &mut TcpStream,
-    ) -> Option<RedisCommands> {
-        let command = match Type::from_bytes(&buf[..n]) {
-            Ok(command) => command,
-            Err(e) => {
-                eprintln!("Error determining command type: {e}");
-                Self::respond(&RedisResponse::Null, stream);
-                return None;
-            }
-        };
-        let redis_command = match RedisCommands::parse(&command) {
-            Ok(redis_command) => redis_command,
-            Err(e) => {
-                eprintln!("Error parsing command: {e}");
-                Self::respond(&RedisResponse::Null, stream);
-                return None;
-            }
-        };
+    fn parse_redis_command_from_stream(buf: &[u8; 512], n: usize) -> Option<RedisCommands> {
+        let command = Type::from_bytes(&buf[..n]);
+        let redis_command = RedisCommands::parse(&command);
         Some(redis_command)
+    }
+
+    fn match_redis_command(
+        redis_command: RedisCommands,
+        stream: &mut TcpStream,
+        store: &Arc<Mutex<std::collections::HashMap<String, RedisValue>>>,
+        redis_info: &Arc<Mutex<RedisInfo>>,
+    );
+}
+
+pub trait ClientHandler: CommonCommands {
+    fn handle(redis_info: Arc<Mutex<RedisInfo>>, store: RedisStore, stream: &mut TcpStream) {
+        let mut buf = [0; 512];
+        while let Ok(n) = stream.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            println!(
+                "Received command: '{}'",
+                String::from_utf8_lossy(&buf[0..n])
+            );
+            let Some(redis_command) = Self::parse_redis_command_from_stream(&buf, n) else {
+                eprintln!(
+                    "Cannot parse command {}",
+                    String::from_utf8_lossy(&buf[0..n])
+                );
+                continue;
+            };
+            Self::match_redis_command(redis_command, stream, &store, &redis_info);
+        }
     }
 }
 

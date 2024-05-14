@@ -60,15 +60,12 @@ impl Config {
     /// # Errors
     ///
     /// Returns an error if the arguments are invalid or missing.
-    pub fn from_args(args: &[&str]) -> Result<Self, ConfigError> {
+    #[must_use]
+    pub fn from_args(args: &[&str]) -> Self {
         if args.iter().any(|arg| *arg == "--replicaof") {
-            ReplicaConfig::from_args(args)
-                .map(Config::Replica)
-                .map_err(ConfigError::from)
+            Self::Replica(ReplicaConfig::from_args(args))
         } else {
-            MasterConfig::from_args(args)
-                .map(Config::Master)
-                .map_err(ConfigError::from)
+            Self::Master(MasterConfig::from_args(args))
         }
     }
 
@@ -137,32 +134,35 @@ impl ReplicaConfig {
     /// # Errors
     ///
     /// Returns an error if the arguments are invalid or missing.
-    pub fn from_args(args: &[&str]) -> Result<Self, ReplicaConfigError> {
+    #[must_use]
+    pub fn from_args(args: &[&str]) -> Self {
         let Some(replica_arg_position) = args.iter().position(|arg| *arg == "--replicaof") else {
-            return Err(ReplicaConfigError::MissingReplicaOf);
+            panic!("Replica config missing --replicaof")
         };
 
         let Some(host_of_replica) = args.get(replica_arg_position + 1) else {
-            return Err(ReplicaConfigError::MissingReplicaOfHost);
+            panic!("Replica config missing host of replica")
         };
 
         let host_of_replica = host_of_replica
             .parse::<Host>()
-            .map_err(|_| ReplicaConfigError::InvalidReplicaOfHost)?;
+            .map_err(|_| ReplicaConfigError::InvalidReplicaOfHost)
+            .expect("Cannot parse replicaof host as Host");
 
         let Some(port_of_host) = args.get(replica_arg_position + 2) else {
-            return Err(ReplicaConfigError::MissingReplicaOfPort);
+            panic!("Missing port of host of replica");
         };
         let port_of_host = port_of_host
             .parse::<Port>()
-            .map_err(|_| ReplicaConfigError::InvalidReplicaOfPort)?;
+            .map_err(|_| ReplicaConfigError::InvalidReplicaOfPort)
+            .expect("Port of host of replica cannot be parsed as Port");
 
         let replica_of = ReplicaOf::new(host_of_replica, port_of_host);
 
-        Ok(Self {
-            port: parse_port(args)?,
+        Self {
+            port: parse_port(args).expect("Cannot parse port as Port"),
             replica_of,
-        })
+        }
     }
 
     /// Creates a `ReplicaConfig` from a `Config` enum.
@@ -235,10 +235,11 @@ impl MasterConfig {
     /// # Errors
     ///
     /// Returns an error if the arguments are invalid or missing.
-    pub fn from_args(args: &[&str]) -> Result<Self, MasterConfigError> {
-        Ok(Self {
-            port: parse_port(args)?,
-        })
+    #[must_use]
+    pub fn from_args(args: &[&str]) -> Self {
+        Self {
+            port: parse_port(args).expect("Cannot parse master port"),
+        }
     }
 
     /// Creates a `MasterConfig` from a `Config` enum.
