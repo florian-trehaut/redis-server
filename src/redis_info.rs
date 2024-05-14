@@ -19,8 +19,8 @@ impl RedisInfo {
                 master_replid: ReplicationId::parse(Some("Master".to_string())),
                 master_repl_offset: Offset::parse(Some(0)),
             },
-            Config::Slave(_) => Self {
-                role: Role::Slave,
+            Config::Replica(_) => Self {
+                role: Role::Replica,
                 master_replid: ReplicationId::parse(None),
                 master_repl_offset: Offset::parse(None),
             },
@@ -47,13 +47,13 @@ impl Display for RedisInfo {
 
 enum Role {
     Master,
-    Slave,
+    Replica,
 }
 impl Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Master => write!(f, "master"),
-            Self::Slave => write!(f, "slave"),
+            Self::Replica => write!(f, "replica"),
         }
     }
 }

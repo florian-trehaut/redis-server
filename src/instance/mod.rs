@@ -1,15 +1,18 @@
 use std::{
-    collections::HashMap,
     io::Error,
     net::TcpListener,
     sync::{Arc, Mutex},
     thread,
 };
 
-use crate::{ClientHandler, Config, RedisStore};
+use crate::{redis_info::RedisInfo, ClientHandler, Config, RedisStore};
 
-pub mod master;
-pub mod slave;
+#[allow(clippy::module_name_repetitions)]
+pub mod master_instance;
+#[allow(clippy::module_name_repetitions)]
+pub mod replica_instance;
+
+pub mod client_handler;
 
 /// Trait for creating a Redis instance.
 pub trait Create {
@@ -39,7 +42,7 @@ pub trait Run {
     /// # Errors
     ///
     /// If the instance fails to run, an `Error` is returned.
-    fn run(&self, config: Config) -> Result<(), Self::Error>;
+    fn run(&self) -> Result<(), Self::Error>;
 }
 
 /// Trait for listening to incoming connections.
@@ -54,53 +57,47 @@ pub trait Listen {
     /// # Errors
     ///
     /// If the listener fails to bind to the address, an `Error` is returned.
-    fn listen(&self, config: Config) -> Result<TcpListener, Self::Error>;
+    fn listen(&self) -> Result<TcpListener, Self::Error>;
 }
 
 /// Represents a Redis instance.
-pub struct Redis {
+pub struct Instance {
     store: RedisStore,
+    config: Config,
+    redis_info: Arc<Mutex<RedisInfo>>,
 }
+impl ClientHandler for Instance {}
 
-impl Redis {
-    /// Creates a new Redis instance with the given configuration.
-    fn new() -> Self {
-        let store: RedisStore = Arc::new(Mutex::new(HashMap::new()));
-        Self { store }
-    }
-}
-
-impl Listen for Redis {
+impl Listen for Instance {
     /// Listens to incoming connections and returns a `TcpListener`.
     ///
     /// # Returns
     ///
     /// Returns a `TcpListener` if the listening is successful, otherwise returns an `Error`.
     type Error = Error;
-    fn listen(&self, config: Config) -> Result<TcpListener, Error> {
-        println!("Listening on port {}", config.port());
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", config.port()))?;
+    fn listen(&self) -> Result<TcpListener, Error> {
+        println!("Listening on port {}", self.config.port());
+        let listener = TcpListener::bind(format!("127.0.0.1:{}", self.config.port()))?;
         Ok(listener)
     }
 }
 
-impl Run for Redis {
+impl Run for Instance {
     /// Runs the Redis instance.
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` if the instance runs successfully, otherwise returns an `Error`.
     type Error = Error;
-    fn run(&self, config: Config) -> Result<(), Error> {
-        let listener = self.listen(config.clone())?;
+    fn run(&self) -> Result<(), Error> {
+        let listener = self.listen()?;
         let mut threads: Vec<_> = vec![];
         for stream in listener.incoming() {
             let mut stream = stream?;
-            let store_clone = self.store.clone();
-            let config_clone = config.clone();
+            let store = self.store.clone();
+            let redis_info = self.redis_info.clone();
             threads.push(thread::spawn(move || {
-                let mut handler = ClientHandler::new(store_clone, &config_clone);
-                handler.handle(&mut stream);
+                Self::handle(redis_info, store, &mut stream);
             }));
         }
         for handle in threads {

@@ -1,34 +1,42 @@
 use crate::{
     redis_commands::RedisCommands,
+    redis_info::RedisInfo,
     resp::{Array, RedisResponse, ToRedisBytes},
-    server_config::{server::SlaveConfigError, Offset, ReplicationId},
-    Config, SlaveConfig,
+    server_config::{Offset, ReplicationId},
+    ClientHandler, Config, Listen, RedisStore, ReplicaConfig,
 };
 
-use super::{Create, Redis, Run};
+use super::Run;
 use std::{
+    collections::HashMap,
     io::{Error, Read, Write},
-    net::TcpStream,
+    net::{TcpListener, TcpStream},
+    sync::{Arc, Mutex},
+    thread,
 };
 
-pub struct RedisSlaveInstance {
-    instance: Redis,
-    config: SlaveConfig,
+pub struct ReplicaInstance {
+    store: RedisStore,
+    config: ReplicaConfig,
+    redis_info: Arc<Mutex<RedisInfo>>,
 }
-
-impl Create for RedisSlaveInstance {
-    type Instance = Self;
-    type ConfigError = SlaveConfigError;
-    fn new(config: Config) -> Result<Self, Self::ConfigError> {
-        let instance = Redis::new();
-        let config = SlaveConfig::from_server_config(config)?;
-        Ok(Self { instance, config })
+impl ClientHandler for ReplicaInstance {}
+impl ReplicaInstance {
+    #[must_use]
+    pub fn new(config: ReplicaConfig) -> Self {
+        let store: RedisStore = Arc::new(Mutex::new(HashMap::new()));
+        let redis_info = Arc::new(Mutex::new(RedisInfo::new(&Config::Replica(config.clone()))));
+        Self {
+            store,
+            config,
+            redis_info,
+        }
     }
 }
 
-impl Run for RedisSlaveInstance {
+impl Run for ReplicaInstance {
     type Error = Error;
-    fn run(&self, config: Config) -> Result<(), Error> {
+    fn run(&self) -> Result<(), Error> {
         match self.handshake() {
             Ok(()) => println!(
                 "Successful handshake with master {}",
@@ -36,12 +44,24 @@ impl Run for RedisSlaveInstance {
             ),
             Err(e) => panic!("{e}"),
         }
-        self.instance.run(config)?;
+        let listener = self.listen()?;
+        let mut threads: Vec<_> = vec![];
+        for stream in listener.incoming() {
+            let mut stream = stream?;
+            let store = self.store.clone();
+            let redis_info = self.redis_info.clone();
+            threads.push(thread::spawn(move || {
+                Self::handle(redis_info, store, &mut stream);
+            }));
+        }
+        for handle in threads {
+            handle.join().expect("Panic occurred in thread");
+        }
         Ok(())
     }
 }
 
-impl RedisSlaveInstance {
+impl ReplicaInstance {
     fn handshake(&self) -> Result<(), Error> {
         println!(
             "Connecting to master at {}:{}",
@@ -120,10 +140,24 @@ impl RedisSlaveInstance {
         let offset = offset.map_or_else(|| Offset::parse(None), |off| off);
         let command = RedisCommands::Psync(replication_id, offset).to_redis_bytes();
         println!(
-            "Slave sending PSync command: '{}'",
+            "replica sending PSync command: '{}'",
             String::from_utf8_lossy(&command)
         );
         stream.write_all(&command)?;
         Ok(())
+    }
+}
+
+impl Listen for ReplicaInstance {
+    /// Listens to incoming connections and returns a `TcpListener`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `TcpListener` if the listening is successful, otherwise returns an `Error`.
+    type Error = Error;
+    fn listen(&self) -> Result<TcpListener, Error> {
+        println!("Listening on port {}", self.config.port());
+        let listener = TcpListener::bind(format!("127.0.0.1:{}", self.config.port()))?;
+        Ok(listener)
     }
 }

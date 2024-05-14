@@ -1,4 +1,4 @@
-use redis_starter_rust::{Config, Create, RedisMasterInstance, RedisSlaveInstance, Run};
+use redis_starter_rust::{Config, MasterInstance, ReplicaInstance, Run};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -11,19 +11,15 @@ fn main() {
             }
         };
     match server_config {
-        Config::Slave(config) => {
-            let config = Config::Slave(config);
-            let redis_server =
-                RedisSlaveInstance::new(config.clone()).expect("Can't build slave instance");
-            if let Err(e) = redis_server.run(config) {
+        Config::Replica(config) => {
+            let redis_server = ReplicaInstance::new(config);
+            if let Err(e) = redis_server.run() {
                 eprintln!("Error running server: {e}");
             }
         }
         Config::Master(config) => {
-            let config = Config::Master(config);
-            let redis_server =
-                RedisMasterInstance::new(config.clone()).expect("Can't build master instance");
-            if let Err(e) = redis_server.run(config) {
+            let redis_server = MasterInstance::new(config);
+            if let Err(e) = redis_server.run() {
                 eprintln!("Error running server: {e}");
             }
         }

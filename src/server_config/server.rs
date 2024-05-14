@@ -1,31 +1,31 @@
 /// This module contains the implementation of the `ServerConfig` enum and its associated types and functions.
-/// The `ServerConfig` enum represents the configuration of a Redis server, which can be either a master or a slave.
+/// The `ServerConfig` enum represents the configuration of a Redis server, which can be either a master or a replica.
 /// It provides methods for creating a `ServerConfig` from command line arguments, retrieving the port of the server,
 /// and handling errors related to server configuration.
 ///
 /// The `ServerConfig` enum has two variants:
 /// - `Master`: Represents the configuration of a master server.
-/// - `Slave`: Represents the configuration of a slave server.
+/// - `Replica`: Represents the configuration of a replica server.
 ///
 /// The `MasterConfig` struct represents the configuration of a master server and contains the port of the server.
 /// It provides methods for retrieving the port of the server and creating a `MasterConfig` from command line arguments
 /// or from a `ServerConfig` enum.
 ///
-/// The `SlaveConfig` struct represents the configuration of a slave server and contains the port of the server and the
+/// The `ReplicaConfig` struct represents the configuration of a replica server and contains the port of the server and the
 /// information about the master server it replicates. It provides methods for retrieving the port and the replica information
-/// of the server, creating a `SlaveConfig` from command line arguments or from a `ServerConfig` enum.
+/// of the server, creating a `ReplicaConfig` from command line arguments or from a `ServerConfig` enum.
 ///
 /// The `ServerConfigError` enum represents the possible errors that can occur during server configuration.
 /// It has two variants:
 /// - `Master`: Represents an error related to the configuration of a master server.
-/// - `Slave`: Represents an error related to the configuration of a slave server.
+/// - `Replica`: Represents an error related to the configuration of a replica server.
 ///
 /// The `MasterConfigError` enum represents the possible errors that can occur during the configuration of a master server.
 /// It has two variants:
 /// - `MissingPort`: Indicates that the port argument is missing.
 /// - `InvalidPort`: Indicates that the port argument is invalid.
 ///
-/// The `SlaveConfigError` enum represents the possible errors that can occur during the configuration of a slave server.
+/// The `ReplicaConfigError` enum represents the possible errors that can occur during the configuration of a replica server.
 /// It has five variants:
 /// - `MissingReplicaOf`: Indicates that the replicaof argument is missing.
 /// - `MissingReplicaOfHost`: Indicates that the host argument of the replicaof command is missing.
@@ -44,7 +44,7 @@ use super::{host::Host, port::Error};
 #[derive(Clone, Debug)]
 pub enum Config {
     Master(MasterConfig),
-    Slave(SlaveConfig),
+    Replica(ReplicaConfig),
 }
 impl Config {
     /// Parses the command line arguments and creates a `ServerConfig` from them.
@@ -62,8 +62,8 @@ impl Config {
     /// Returns an error if the arguments are invalid or missing.
     pub fn from_args(args: &[&str]) -> Result<Self, ConfigError> {
         if args.iter().any(|arg| *arg == "--replicaof") {
-            SlaveConfig::from_args(args)
-                .map(Config::Slave)
+            ReplicaConfig::from_args(args)
+                .map(Config::Replica)
                 .map_err(ConfigError::from)
         } else {
             MasterConfig::from_args(args)
@@ -81,7 +81,7 @@ impl Config {
     pub const fn port(&self) -> &Port {
         match self {
             Self::Master(config) => config.port(),
-            Self::Slave(config) => config.port(),
+            Self::Replica(config) => config.port(),
         }
     }
 }
@@ -89,33 +89,33 @@ impl Config {
 #[derive(Debug)]
 pub enum ConfigError {
     Master(MasterConfigError),
-    Slave(SlaveConfigError),
+    Replica(ReplicaConfigError),
 }
 impl From<MasterConfigError> for ConfigError {
     fn from(err: MasterConfigError) -> Self {
         Self::Master(err)
     }
 }
-impl From<SlaveConfigError> for ConfigError {
-    fn from(err: SlaveConfigError) -> Self {
-        Self::Slave(err)
+impl From<ReplicaConfigError> for ConfigError {
+    fn from(err: ReplicaConfigError) -> Self {
+        Self::Replica(err)
     }
 }
 impl Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Master(err) => write!(f, "{err}"),
-            Self::Slave(err) => write!(f, "{err}"),
+            Self::Replica(err) => write!(f, "{err}"),
         }
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct SlaveConfig {
+pub struct ReplicaConfig {
     port: Port,
     replica_of: ReplicaOf,
 }
-impl SlaveConfig {
+impl ReplicaConfig {
     #[must_use]
     pub const fn replica_of(&self) -> &ReplicaOf {
         &self.replica_of
@@ -124,7 +124,7 @@ impl SlaveConfig {
     pub const fn port(&self) -> &Port {
         &self.port
     }
-    /// Parses the command line arguments and creates a `SlaveConfig` from them.
+    /// Parses the command line arguments and creates a `ReplicaConfig` from them.
     ///
     /// # Arguments
     ///
@@ -132,30 +132,30 @@ impl SlaveConfig {
     ///
     /// # Returns
     ///
-    /// A `Result` containing the `SlaveConfig` if the arguments are valid, or an error if the arguments are invalid.
+    /// A `Result` containing the `ReplicaConfig` if the arguments are valid, or an error if the arguments are invalid.
     ///
     /// # Errors
     ///
     /// Returns an error if the arguments are invalid or missing.
-    pub fn from_args(args: &[&str]) -> Result<Self, SlaveConfigError> {
+    pub fn from_args(args: &[&str]) -> Result<Self, ReplicaConfigError> {
         let Some(replica_arg_position) = args.iter().position(|arg| *arg == "--replicaof") else {
-            return Err(SlaveConfigError::MissingReplicaOf);
+            return Err(ReplicaConfigError::MissingReplicaOf);
         };
 
         let Some(host_of_replica) = args.get(replica_arg_position + 1) else {
-            return Err(SlaveConfigError::MissingReplicaOfHost);
+            return Err(ReplicaConfigError::MissingReplicaOfHost);
         };
 
         let host_of_replica = host_of_replica
             .parse::<Host>()
-            .map_err(|_| SlaveConfigError::InvalidReplicaOfHost)?;
+            .map_err(|_| ReplicaConfigError::InvalidReplicaOfHost)?;
 
         let Some(port_of_host) = args.get(replica_arg_position + 2) else {
-            return Err(SlaveConfigError::MissingReplicaOfPort);
+            return Err(ReplicaConfigError::MissingReplicaOfPort);
         };
         let port_of_host = port_of_host
             .parse::<Port>()
-            .map_err(|_| SlaveConfigError::InvalidReplicaOfPort)?;
+            .map_err(|_| ReplicaConfigError::InvalidReplicaOfPort)?;
 
         let replica_of = ReplicaOf::new(host_of_replica, port_of_host);
 
@@ -165,7 +165,7 @@ impl SlaveConfig {
         })
     }
 
-    /// Creates a `SlaveConfig` from a `Config` enum.
+    /// Creates a `ReplicaConfig` from a `Config` enum.
     ///
     /// # Arguments
     ///
@@ -173,21 +173,21 @@ impl SlaveConfig {
     ///
     /// # Returns
     ///
-    /// A `Result` containing the `SlaveConfig` if the `Config` is a `Slave`, or an error if the `Config` is not a `Slave`.
+    /// A `Result` containing the `ReplicaConfig` if the `Config` is a `Replica`, or an error if the `Config` is not a `Replica`.
     ///
     /// # Errors
     ///
-    /// Returns an error if the `Config` is not a `Slave`.
-    pub const fn from_server_config(config: Config) -> Result<Self, SlaveConfigError> {
+    /// Returns an error if the `Config` is not a `Replica`.
+    pub const fn from_server_config(config: Config) -> Result<Self, ReplicaConfigError> {
         match config {
-            Config::Slave(config) => Ok(config),
-            Config::Master(_) => Err(SlaveConfigError::MissingReplicaOf),
+            Config::Replica(config) => Ok(config),
+            Config::Master(_) => Err(ReplicaConfigError::MissingReplicaOf),
         }
     }
 }
 
 #[derive(Debug)]
-pub enum SlaveConfigError {
+pub enum ReplicaConfigError {
     MissingReplicaOf,
     MissingReplicaOfHost,
     MissingReplicaOfPort,
@@ -195,12 +195,12 @@ pub enum SlaveConfigError {
     InvalidReplicaOfPort,
     InvalidPort(Error),
 }
-impl From<Error> for SlaveConfigError {
+impl From<Error> for ReplicaConfigError {
     fn from(err: Error) -> Self {
         Self::InvalidPort(err)
     }
 }
-impl Display for SlaveConfigError {
+impl Display for ReplicaConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingReplicaOf => write!(f, "Missing replicaof"),
@@ -257,7 +257,7 @@ impl MasterConfig {
     pub const fn from_server_config(config: Config) -> Result<Self, MasterConfigError> {
         match config {
             Config::Master(config) => Ok(config),
-            Config::Slave(_) => Err(MasterConfigError::MissingPort),
+            Config::Replica(_) => Err(MasterConfigError::MissingPort),
         }
     }
 }
