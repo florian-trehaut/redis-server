@@ -136,26 +136,46 @@ impl ReplicaConfig {
     /// Returns an error if the arguments are invalid or missing.
     #[must_use]
     pub fn from_args(args: &[&str]) -> Self {
-        let Some(replica_arg_position) = args.iter().position(|arg| *arg == "--replicaof") else {
-            panic!("Replica config missing --replicaof")
-        };
+        let replica_arg_position = args
+            .iter()
+            .position(|arg| *arg == "--replicaof")
+            .expect("Replica config missing --replicaof");
 
-        let Some(host_of_replica) = args.get(replica_arg_position + 1) else {
-            panic!("Replica config missing host of replica")
-        };
+        let replica_command = args
+            .get(replica_arg_position + 1)
+            .expect("Replica config missing host of replica");
 
-        let host_of_replica = host_of_replica
-            .parse::<Host>()
-            .map_err(|_| ReplicaConfigError::InvalidReplicaOfHost)
-            .expect("Cannot parse replicaof host as Host");
+        let (host_of_replica, port_of_host) = match replica_command
+            .split_whitespace()
+            .collect::<Vec<&str>>()
+            .as_slice()
+        {
+            [host] => {
+                let host_of_replica = host
+                    .parse::<Host>()
+                    .expect("Cannot parse replica host as Host");
 
-        let Some(port_of_host) = args.get(replica_arg_position + 2) else {
-            panic!("Missing port of host of replica");
+                let port_of_host = args
+                    .get(replica_arg_position + 2)
+                    .expect("Missing port of host of replica")
+                    .parse::<Port>()
+                    .expect("Port of host of replica cannot be parsed as Port");
+
+                (host_of_replica, port_of_host)
+            }
+            [host, port] => {
+                let host_of_replica = host
+                    .parse::<Host>()
+                    .expect("Cannot parse replica host as Host");
+
+                let port_of_host = port
+                    .parse::<Port>()
+                    .expect("Port of host of replica cannot be parsed as Port");
+
+                (host_of_replica, port_of_host)
+            }
+            _ => panic!("Invalid replica command format"),
         };
-        let port_of_host = port_of_host
-            .parse::<Port>()
-            .map_err(|_| ReplicaConfigError::InvalidReplicaOfPort)
-            .expect("Port of host of replica cannot be parsed as Port");
 
         let replica_of = ReplicaOf::new(host_of_replica, port_of_host);
 

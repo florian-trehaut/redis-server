@@ -1,5 +1,7 @@
 use crate::{
-    redis_commands::RedisCommands, redis_info::RedisInfo, resp::redis_response::RedisResponse,
+    redis_commands::RedisCommands,
+    redis_info::RedisInfo,
+    resp::{redis_response::RedisResponse, RDBFile},
     ClientHandler, Config, Listen, MasterConfig, RedisStore,
 };
 
@@ -24,6 +26,11 @@ impl CommonCommands for MasterInstance {
         store: &Arc<Mutex<std::collections::HashMap<String, crate::RedisValue>>>,
         redis_info: &Arc<Mutex<RedisInfo>>,
     ) {
+        let current_instance_role;
+        {
+            let current_instance_role_lock = redis_info.lock().expect("Poisonned redis_info");
+            current_instance_role = current_instance_role_lock.role().clone();
+        }
         match &redis_command {
             RedisCommands::Ping => Self::ping(stream),
             RedisCommands::Echo(message) => Self::echo(message, stream),
@@ -38,7 +45,7 @@ impl CommonCommands for MasterInstance {
             RedisCommands::Psync(_, _) => Self::psync(redis_info, stream),
             command => unimplemented!("{command} is unimplemented for Master"),
         }
-        println!("Matched command '{redis_command}'");
+        println!("Instance {current_instance_role}: Matched command '{redis_command}'");
     }
 }
 
@@ -70,6 +77,8 @@ impl MasterInstance {
         let command = RedisCommands::FullResync(replid, offset);
         println!("Unlocked redis_info");
         Self::respond(&command, stream);
+        let rdb_file = RDBFile::empty_file();
+        Self::respond(&rdb_file, stream);
     }
 }
 

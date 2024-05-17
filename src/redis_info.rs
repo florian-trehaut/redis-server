@@ -6,6 +6,7 @@ use crate::{
     Config,
 };
 
+#[derive(Debug, Clone)]
 pub struct RedisInfo {
     role: Role,
     master_replid: ReplicationId,
@@ -35,6 +36,9 @@ impl RedisInfo {
     pub const fn master_repl_offset(&self) -> &Offset {
         &self.master_repl_offset
     }
+    pub const fn role(&self) -> &Role {
+        &self.role
+    }
 }
 impl Display for RedisInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -45,7 +49,8 @@ impl Display for RedisInfo {
     }
 }
 
-enum Role {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Role {
     Master,
     Replica,
 }
@@ -53,7 +58,7 @@ impl Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Master => write!(f, "master"),
-            Self::Replica => write!(f, "replica"),
+            Self::Replica => write!(f, "slave"),
         }
     }
 }
